@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Cutoff</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Layout: full-bleed 3D room; menu is a left-edge control column, HUD hugs the corners. Single dark theme by choice. */
+  --void: #05060f;
+  --panel: rgba(10, 12, 30, .82);
+  --ink: #e9edff;
+  --dim: #8f97c9;
+  --p1: #b8ff3c;
+  --p2: #ff4fd8;
+  --danger: #ff5a4f;
+  --line: rgba(143, 151, 201, .28);
+  --display: "Chakra Petch", "Eurostile", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; background: var(--void); color: var(--ink); font-family: var(--display); overflow: hidden; }
+canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+#menu {
+  position: fixed; left: 0; top: 0; bottom: 0; width: min(380px, 100%);
+  padding: 28px 24px; display: flex; flex-direction: column; gap: 14px; justify-content: flex-end;
+  background: linear-gradient(90deg, rgba(5,6,15,.94) 0%, rgba(5,6,15,.78) 70%, rgba(5,6,15,0) 100%);
+  overflow-y: auto;
+}
+#menu[hidden] { display: none; }
+h1 { margin: 0; font-size: 44px; line-height: 1; letter-spacing: .14em; font-weight: 700; }
+h1 span:first-child { color: var(--p1); } h1 span:last-child { color: var(--p2); }
+.tag { margin: 0 0 6px; color: var(--dim); font-size: 16px; max-width: 30ch; }
+.label { font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { background: transparent; border: 0; padding: 10px 0; font-size: 15px; color: var(--dim); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--void); font-weight: 600; }
+.go { display: flex; flex-direction: column; gap: 10px; }
+.go button {
+  text-align: left; padding: 14px 16px; font-size: 18px; font-weight: 600; letter-spacing: .03em;
+  background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--p1); border-radius: 6px;
+}
+.go button small { display: block; font-weight: 400; font-size: 13px; color: var(--dim); letter-spacing: 0; margin-top: 2px; }
+.go button:hover { border-color: var(--ink); border-left-color: var(--p1); }
+.go #b2 { border-left-color: var(--p2); }
+.go #bvr { border-left-color: var(--ink); }
+#vrnote { margin: 0; font-size: 13px; color: var(--dim); }
+details { font-size: 14px; color: var(--dim); border-top: 1px solid var(--line); padding-top: 10px; }
+summary { cursor: pointer; color: var(--ink); }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 10px 0 0; }
+dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
+
+#hud { position: fixed; inset: 0; pointer-events: none; }
+#hud[hidden] { display: none; }
+.pane { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.pane .who { position: absolute; left: 16px; top: 14px; font-size: 14px; letter-spacing: .14em; text-transform: uppercase; font-weight: 600; }
+.pane .boost { position: absolute; left: 16px; top: 38px; width: 120px; height: 6px; background: rgba(255,255,255,.12); border-radius: 3px; overflow: hidden; }
+.pane .boost i { display: block; height: 100%; width: 100%; background: currentColor; }
+#pane0 { color: var(--p1); } #pane1 { color: var(--p2); }
+#hud.solo #pane1 { width: auto; height: auto; left: auto; right: 0; top: 0; }
+#hud.solo #pane1 .who, #hud.solo #pane1 .boost { left: auto; right: 16px; }
+#hud.solo #pane1 .who { text-align: right; }
+#hud.split-h .pane { width: 50%; } #hud.split-h #pane1 { left: 50%; border-left: 1px solid var(--line); }
+#hud.split-v .pane { height: 50%; } #hud.split-v #pane1 { top: 50%; border-top: 1px solid var(--line); }
+#clock { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); font-size: 20px; font-variant-numeric: tabular-nums; letter-spacing: .08em;
+  background: var(--panel); padding: 4px 12px; border-radius: 4px; }
+#warn { position: absolute; left: 50%; top: 52px; transform: translateX(-50%); color: var(--danger); font-weight: 700; letter-spacing: .2em; font-size: 14px; white-space: nowrap; animation: blink .5s steps(2) infinite; }
+#warn[hidden] { display: none; }
+#hud.split-h #clock { top: auto; bottom: 12px; } #hud.split-h #warn { top: auto; bottom: 52px; }
+@keyframes blink { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { #warn { animation: none; } }
+#big { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); text-align: center; pointer-events: auto; width: min(92%, 460px); }
+#big[hidden] { display: none; }
+#big .msg { font-size: clamp(40px, 11vw, 84px); font-weight: 700; letter-spacing: .08em; line-height: 1; text-wrap: balance; text-shadow: 0 0 24px rgba(5,6,15,.9); }
+#big .sub { margin-top: 10px; color: var(--ink); font-size: 17px; text-shadow: 0 0 10px var(--void); }
+#big .acts { margin-top: 18px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+#big .acts button { padding: 12px 20px; font-size: 16px; font-weight: 600; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+#big .acts button:first-child { background: var(--ink); color: var(--void); }
+#boostBtn { position: fixed; right: 18px; bottom: 22px; width: 92px; height: 92px; border-radius: 50%; background: var(--panel);
+  border: 2px solid var(--p1); color: var(--p1); font-weight: 700; letter-spacing: .1em; font-size: 14px; touch-action: none; user-select: none; -webkit-user-select: none; }
+#boostBtn[hidden] { display: none; }
+#hint { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); color: var(--dim); font-size: 13px; text-align: center; width: 90%; }
+@media (max-width: 480px) {
+  #menu { width: 100%; background: linear-gradient(0deg, rgba(5,6,15,.96) 0%, rgba(5,6,15,.8) 75%, rgba(5,6,15,0) 100%); padding: 20px 16px; }
+  h1 { font-size: 36px; }
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud" class="solo" hidden>
+  <div class="pane" id="pane0"><div class="who" id="who0">You</div><div class="boost"><i id="boost0"></i></div></div>
+  <div class="pane" id="pane1"><div class="who" id="who1">Computer</div><div class="boost"><i id="boost1"></i></div></div>
+  <div id="clock">0:00</div>
+  <div id="warn" hidden>WALLS CLOSING</div>
+  <div id="big" hidden><div class="msg" id="msg"></div><div class="sub" id="sub"></div>
+    <div class="acts" id="acts" hidden><button id="again">Rematch</button><button id="back">Menu</button></div></div>
+  <div id="hint"></div>
+</div>
+<button id="boostBtn" hidden>BOOST</button>
+
+<div id="menu">
+  <h1><span>CUT</span><span>OFF</span></h1>
+  <p class="tag">Two drones weave walls of light through one room. Fly into a wall and you lose. The room keeps closing in.</p>
+  <div class="label" id="difflabel">Computer skill</div>
+  <div class="seg" role="group" aria-labelledby="difflabel">
+    <button id="d-easy" data-diff="easy" aria-pressed="false">Easy</button>
+    <button id="d-normal" data-diff="normal" aria-pressed="true">Normal</button>
+    <button id="d-hard" data-diff="hard" aria-pressed="false">Hard</button>
+  </div>
+  <div class="go">
+    <button id="bvr" hidden>Play in VR<small>You against the computer, from the chase seat</small></button>
+    <button id="b1">1 player vs computer<small>On this screen</small></button>
+    <button id="b2">2 players<small>Split screen, one keyboard or two gamepads</small></button>
+  </div>
+  <p id="vrnote">Checking for a VR headset…</p>
+  <details>
+    <summary>Controls</summary>
+    <dl>
+      <dt>VR</dt><dd>Flick either thumbstick to turn, climb or dive. Hold a trigger to boost. A or X levels off.</dd>
+      <dt>Player 1</dt><dd>A / D turn, W climb, S dive, E level off, left Shift boost</dd>
+      <dt>Player 2</dt><dd>Arrow keys, / level off, right Shift boost</dd>
+      <dt>Gamepad</dt><dd>Stick or d-pad to steer, A or right trigger to boost</dd>
+      <dt>Touch</dt><dd>Swipe to steer, hold the Boost button</dd>
+    </dl>
+  </details>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// CUTOFF game logic: 3D grid light-trail duel. No rendering in this file.
+(function (root) {
+  const NX = 32, NY = 16, NZ = 32;
+  const BASE_SPEED = 6.5;      // cells per second
+  const BOOST_MULT = 1.75;
+  const FIRST_SHRINK = 20, SHRINK_EVERY = 8, WARN_TIME = 3;
+
+  const LEFT = h => [h[2], 0, -h[0]];
+  const RIGHT = h => [-h[2], 0, h[0]];
+
+  // Commands: L/R turn the heading 90 degrees, U/D climb or dive, F levels off.
+  // The craft never rolls: "up" is always the room's up, which keeps VR comfortable.
+  function applyCmd(p, cmd) {
+    const d = p.dir, h = p.heading;
+    switch (cmd) {
+      case 'L': p.heading = LEFT(h); p.dir = p.heading.slice(); break;
+      case 'R': p.heading = RIGHT(h); p.dir = p.heading.slice(); break;
+      case 'U': p.dir = d[1] < 0 ? h.slice() : [0, 1, 0]; break;
+      case 'D': p.dir = d[1] > 0 ? h.slice() : [0, -1, 0]; break;
+      case 'F': p.dir = h.slice(); break;
+    }
+  }
+
+  const PROFILES = {
+    easy:   { depth: 12,   aggr: 0,   lead: 0, noise: 6,   wander: 0.07, boost: false, caution: 0,  respect: 0 },
+    normal: { depth: 300,  aggr: 0.5, lead: 4, noise: 1.5, wander: 0.01, boost: false, caution: 8,  respect: 60 },
+    hard:   { depth: 1500, aggr: 0.9, lead: 5, noise: 0.3, wander: 0,    boost: true,  caution: 15, respect: 80 },
+  };
+
+
+  class Game {
+    constructor(specs) {
+      // specs: [{ai:false}|{ai:true,difficulty:'normal'}, ...] (two entries)
+      this.nx = NX; this.ny = NY; this.nz = NZ;
+      this.occ = new Uint8Array(NX * NY * NZ);
+      this.stamp = new Uint32Array(NX * NY * NZ);
+      this.gen = 0;
+      this.queue = new Int32Array(4096);
+      this.min = [0, 0, 0];
+      this.max = [NX - 1, NY - 1, NZ - 1];
+      this.time = 0;
+      this.shrinks = 0;
+      this.nextShrink = FIRST_SHRINK;
+      this.warning = false;
+      this.over = false;
+      this.winner = null; // player id, or null for a draw
+      this.events = [];
+      const y = NY >> 1, zc = NZ >> 1;
+      const starts = [
+        { pos: [5, y, zc - 3], heading: [1, 0, 0] },
+        { pos: [NX - 6, y, zc + 2], heading: [-1, 0, 0] },
+      ];
+      this.players = specs.map((s, i) => {
+        const p = {
+          id: i, ai: !!s.ai, difficulty: s.difficulty || 'normal',
+          pos: starts[i].pos.slice(), prev: starts[i].pos.slice(),
+          heading: starts[i].heading.slice(), dir: starts[i].heading.slice(),
+          t: 1, alive: true, queue: [], boosting: false, energy: 1,
+          sinceTurn: 9, segs: [], aiBoost: false,
+        };
+        p.segs.push({ a: p.pos.slice(), b: p.pos.slice() });
+        this.occ[this.idx(p.pos[0], p.pos[1], p.pos[2])] = i + 1;
+        return p;
+      });
+    }
+    idx(x, y, z) { return (y * NZ + z) * NX + x; }
+    inBox(x, y, z, mn, mx) {
+      return x >= mn[0] && x <= mx[0] && y >= mn[1] && y <= mx[1] && z >= mn[2] && z <= mx[2];
+    }
+    free(x, y, z) {
+      return this.inBox(x, y, z, this.min, this.max) && this.occ[this.idx(x, y, z)] === 0;
+    }
+    // Bounds after the next wall move, or null if the room cannot shrink further.
+    futureBounds() {
+      const mn = this.min.slice(), mx = this.max.slice();
+      let changed = false;
+      for (let a = 0; a < 3; a++) {
+        if (a === 1 && this.shrinks % 2 === 0) continue; // height closes at half the rate
+        if (mx[a] - mn[a] + 1 > 2) { mn[a]++; mx[a]--; changed = true; }
+      }
+      return changed ? { min: mn, max: mx } : null;
+    }
+    input(id, cmd) {
+      const p = this.players[id];
+      if (p && p.alive && !p.ai && p.queue.length < 2) p.queue.push(cmd);
+    }
+    // Count free cells reachable from a cell, up to limit, inside the given box.
+    flood(x, y, z, limit, mn, mx) {
+      if (!this.inBox(x, y, z, mn, mx)) return 0;
+      const g = ++this.gen, q = this.queue, st = this.stamp, occ = this.occ;
+      let head = 0, tail = 0, count = 0;
+      const start = this.idx(x, y, z);
+      st[start] = g; q[tail++] = start;
+      while (head < tail && count < limit) {
+        const c = q[head++]; count++;
+        const cx = c % NX, cz = ((c / NX) | 0) % NZ, cy = (c / (NX * NZ)) | 0;
+        for (let k = 0; k < 6; k++) {
+          const ax = cx + (k === 0) - (k === 1), ay = cy + (k === 2) - (k === 3), az = cz + (k === 4) - (k === 5);
+          if (!this.inBox(ax, ay, az, mn, mx)) continue;
+          const n = this.idx(ax, ay, az);
+          if (st[n] === g || occ[n]) continue;
+          st[n] = g;
+          if (tail < q.length) q[tail++] = n;
+        }
+      }
+      return count;
+    }
+    aiChoose(p) {
+      const prof = PROFILES[p.difficulty] || PROFILES.normal;
+      const opp = this.players.find(q => q !== p && q.alive);
+      const fb = this.futureBounds();
+      const hardWall = fb && this.warning;
+      const mn = hardWall ? fb.min : this.min, mx = hardWall ? fb.max : this.max;
+      const seen = {};
+      let best = null, bestScore = -Infinity;
+      const cands = [];
+      const oppDist = opp ? Math.abs(p.pos[0] - opp.pos[0]) + Math.abs(p.pos[1] - opp.pos[1]) + Math.abs(p.pos[2] - opp.pos[2]) : 99;
+      for (const cmd of [null, 'L', 'R', 'U', 'D', 'F']) {
+        const sim = { dir: p.dir.slice(), heading: p.heading.slice() };
+        if (cmd) applyCmd(sim, cmd);
+        const key = sim.dir.join();
+        if (seen[key]) continue;
+        seen[key] = 1;
+        const n = [p.pos[0] + sim.dir[0], p.pos[1] + sim.dir[1], p.pos[2] + sim.dir[2]];
+        if (!this.free(n[0], n[1], n[2])) continue;
+        cands.push(cmd);
+        let s = this.flood(n[0], n[1], n[2], prof.depth, mn, mx) / prof.depth * 100;
+        if (fb && !this.inBox(n[0], n[1], n[2], fb.min, fb.max)) {
+          if (hardWall) {
+            // Outside the closing walls: head for the centre.
+            const c = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2];
+            s = -200 - (Math.abs(n[0] - c[0]) + Math.abs(n[1] - c[1]) + Math.abs(n[2] - c[2])) * 5;
+          } else s -= prof.caution;
+        }
+        if (cmd === null) s += 1; else if (p.sinceTurn < 3) s -= 3;
+        if (opp) {
+          if (prof.aggr && oppDist > 5) {
+            const tx = opp.pos[0] + opp.dir[0] * prof.lead, ty = opp.pos[1] + opp.dir[1] * prof.lead, tz = opp.pos[2] + opp.dir[2] * prof.lead;
+            s -= (Math.abs(n[0] - tx) + Math.abs(n[1] - ty) + Math.abs(n[2] - tz)) * prof.aggr;
+          }
+          // Stay out of any cell the opponent could take on its next move.
+          const dn = Math.abs(n[0] - opp.pos[0]) + Math.abs(n[1] - opp.pos[1]) + Math.abs(n[2] - opp.pos[2]);
+          if (dn <= 1) s -= prof.respect;
+        }
+        s += Math.random() * prof.noise;
+        if (s > bestScore) { bestScore = s; best = cmd; }
+      }
+      if (cands.length && Math.random() < prof.wander) best = cands[(Math.random() * cands.length) | 0];
+      if (prof.boost && opp) {
+        const d = Math.abs(p.pos[0] - opp.pos[0]) + Math.abs(p.pos[1] - opp.pos[1]) + Math.abs(p.pos[2] - opp.pos[2]);
+        if (p.energy > 0.6 && d > 10) p.aiBoost = true;
+        if (p.energy < 0.15 || d < 6) p.aiBoost = false;
+        p.boosting = p.aiBoost;
+      }
+      return best;
+    }
+    kill(p) {
+      if (!p.alive) return;
+      p.alive = false; p.t = 1; p.boosting = false;
+      this.events.push({ type: 'crash', id: p.id });
+    }
+    update(dt) {
+      if (this.over) return;
+      this.time += dt;
+
+      // Closing walls
+      if (!this.warning && this.time >= this.nextShrink - WARN_TIME && this.futureBounds()) {
+        this.warning = true;
+        this.events.push({ type: 'warn' });
+      }
+      if (this.time >= this.nextShrink) {
+        const fb = this.futureBounds();
+        if (fb) {
+          this.min = fb.min; this.max = fb.max; this.shrinks++;
+          this.events.push({ type: 'shrink' });
+          for (const p of this.players)
+            if (p.alive && !this.inBox(p.pos[0], p.pos[1], p.pos[2], this.min, this.max)) this.kill(p);
+        }
+        this.warning = false;
+        this.nextShrink += SHRINK_EVERY;
+      }
+
+      // Advance craft
+      const steppers = [];
+      for (const p of this.players) {
+        if (!p.alive) continue;
+        const boosting = p.boosting && p.energy > 0;
+        p.energy = boosting ? Math.max(0, p.energy - dt * 0.5) : Math.min(1, p.energy + dt * 0.12);
+        p.boostActive = boosting;
+        p.t += BASE_SPEED * (boosting ? BOOST_MULT : 1) * dt;
+        if (p.t >= 1) steppers.push(p);
+      }
+      for (const p of steppers) {
+        const before = p.dir.join();
+        const cmd = p.ai ? this.aiChoose(p) : p.queue.shift();
+        if (cmd) applyCmd(p, cmd);
+        p.turned = p.dir.join() !== before;
+        p.next = [p.pos[0] + p.dir[0], p.pos[1] + p.dir[1], p.pos[2] + p.dir[2]];
+      }
+      const headOn = steppers.length === 2 && steppers[0].next.join() === steppers[1].next.join();
+      for (const p of steppers) {
+        const n = p.next;
+        if (headOn || !this.free(n[0], n[1], n[2])) { this.kill(p); continue; }
+        if (p.turned) {
+          p.segs.push({ a: p.pos.slice(), b: n.slice() });
+          p.sinceTurn = 0;
+          this.events.push({ type: 'turn', id: p.id });
+        } else {
+          p.segs[p.segs.length - 1].b = n.slice();
+          p.sinceTurn++;
+        }
+        p.prev = p.pos; p.pos = n; p.t -= 1;
+        this.occ[this.idx(n[0], n[1], n[2])] = p.id + 1;
+      }
+
+      const alive = this.players.filter(p => p.alive);
+      if (alive.length <= 1) {
+        this.over = true;
+        this.winner = alive.length ? alive[0].id : null;
+        this.events.push({ type: 'over' });
+      }
+    }
+  }
+
+  const api = { Game, NX, NY, NZ, WARN_TIME, applyCmd };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.Skyloom = api;
+})(typeof self !== 'undefined' ? self : globalThis);
+
+</script>
+<script>
+(function () {
+'use strict';
+const { Game, NX, NY, NZ } = Skyloom;
+const $ = id => document.getElementById(id);
+const COLORS = [0xb8ff3c, 0xff4fd8];
+const HALF_X = NX / 2, HALF_Z = NZ / 2;
+
+// ---------- Renderer and scene ----------
+const canvas = $('c');
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+} catch (e) {
+  $('vrnote').textContent = 'This browser could not start 3D graphics (WebGL). Try another browser.';
+  return;
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.xr.enabled = true;
+renderer.xr.setReferenceSpaceType('local-floor');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05060f);
+scene.fog = new THREE.FogExp2(0x05060f, 0.013);
+
+const rig = new THREE.Group();
+scene.add(rig);
+const cams = [new THREE.PerspectiveCamera(70, 1, 0.05, 300), new THREE.PerspectiveCamera(70, 1, 0.05, 300)];
+rig.add(cams[0]);
+scene.add(cams[1]);
+const views = [{ cam: cams[0], yaw: 0, y: 0 }, { cam: cams[1], yaw: 0, y: 0 }];
+
+// Room: grid lines on all six faces
+(function buildRoom() {
+  const v = [];
+  const S = 2;
+  for (const y of [0, NY]) {
+    for (let x = -HALF_X; x <= HALF_X; x += S) v.push(x, y, -HALF_Z, x, y, HALF_Z);
+    for (let z = -HALF_Z; z <= HALF_Z; z += S) v.push(-HALF_X, y, z, HALF_X, y, z);
+  }
+  for (const z of [-HALF_Z, HALF_Z]) {
+    for (let x = -HALF_X; x <= HALF_X; x += S) v.push(x, 0, z, x, NY, z);
+    for (let y = S; y < NY; y += S) v.push(-HALF_X, y, z, HALF_X, y, z);
+  }
+  for (const x of [-HALF_X, HALF_X]) {
+    for (let z = -HALF_Z + S; z < HALF_Z; z += S) v.push(x, 0, z, x, NY, z);
+    for (let y = S; y < NY; y += S) v.push(x, y, -HALF_Z, x, y, HALF_Z);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  scene.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x34409a, transparent: true, opacity: 0.55 })));
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(NX, NZ), new THREE.MeshBasicMaterial({ color: 0x090b1e }));
+  floor.rotation.x = -Math.PI / 2; floor.position.y = -0.02;
+  scene.add(floor);
+})();
+
+// Closing walls
+const unitBox = new THREE.BoxGeometry(1, 1, 1);
+const wallEdges = new THREE.LineSegments(new THREE.EdgesGeometry(unitBox), new THREE.LineBasicMaterial({ color: 0xe9edff }));
+const wallFill = new THREE.Mesh(unitBox, new THREE.MeshBasicMaterial({ color: 0xff5a4f, transparent: true, opacity: 0.04, side: THREE.BackSide, depthWrite: false }));
+const nextEdges = new THREE.LineSegments(new THREE.EdgesGeometry(unitBox), new THREE.LineBasicMaterial({ color: 0xff5a4f, transparent: true }));
+scene.add(wallEdges, wallFill, nextEdges);
+const wallCur = { c: new THREE.Vector3(0, NY / 2, 0), s: new THREE.Vector3(NX, NY, NZ) };
+const tmpC = new THREE.Vector3(), tmpS = new THREE.Vector3();
+function boundsToBox(mn, mx, c, s) {
+  s.set(mx[0] - mn[0] + 1, mx[1] - mn[1] + 1, mx[2] - mn[2] + 1);
+  c.set((mn[0] + mx[0] + 1) / 2 - HALF_X, (mn[1] + mx[1] + 1) / 2, (mn[2] + mx[2] + 1) / 2 - HALF_Z);
+}
+
+// Trails and craft
+const MAXSEG = 3000;
+const m4 = new THREE.Matrix4(), q0 = new THREE.Quaternion(), vC = new THREE.Vector3(), vS = new THREE.Vector3();
+const UP = new THREE.Vector3(0, 1, 0);
+function Trail(color) {
+  this.core = new THREE.InstancedMesh(unitBox, new THREE.MeshBasicMaterial({ color }), MAXSEG);
+  this.glow = new THREE.InstancedMesh(unitBox, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false }), MAXSEG);
+  this.core.frustumCulled = this.glow.frustumCulled = false;
+  this.craft = new THREE.Group();
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.95, 4), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.44, 0.045, 6, 20), new THREE.MeshBasicMaterial({ color }));
+  ring.rotation.x = Math.PI / 2;
+  this.craft.add(nose, ring);
+  this.head = new THREE.Vector3();
+  this.done = 0;
+  scene.add(this.core, this.glow, this.craft);
+}
+Trail.prototype.reset = function () { this.done = 0; this.core.count = this.glow.count = 0; };
+Trail.prototype.update = function (p) {
+  const t = Math.min(p.t, 1);
+  const hx = p.prev[0] + (p.pos[0] - p.prev[0]) * t, hy = p.prev[1] + (p.pos[1] - p.prev[1]) * t, hz = p.prev[2] + (p.pos[2] - p.prev[2]) * t;
+  this.head.set(hx + 0.5 - HALF_X, hy + 0.5, hz + 0.5 - HALF_Z);
+  const n = Math.min(p.segs.length, MAXSEG);
+  for (let i = Math.min(this.done, n - 1); i < n; i++) {
+    const s = p.segs[i], last = i === p.segs.length - 1;
+    const bx = last ? hx : s.b[0], by = last ? hy : s.b[1], bz = last ? hz : s.b[2];
+    vC.set((s.a[0] + bx) / 2 + 0.5 - HALF_X, (s.a[1] + by) / 2 + 0.5, (s.a[2] + bz) / 2 + 0.5 - HALF_Z);
+    const dx = Math.abs(bx - s.a[0]), dy = Math.abs(by - s.a[1]), dz = Math.abs(bz - s.a[2]);
+    m4.compose(vC, q0, vS.set(dx + 0.26, dy + 0.26, dz + 0.26)); this.core.setMatrixAt(i, m4);
+    m4.compose(vC, q0, vS.set(dx + 0.72, dy + 0.72, dz + 0.72)); this.glow.setMatrixAt(i, m4);
+  }
+  this.done = n - 1;
+  this.core.count = this.glow.count = n;
+  this.core.instanceMatrix.needsUpdate = this.glow.instanceMatrix.needsUpdate = true;
+  this.craft.visible = p.alive;
+  this.craft.position.copy(this.head);
+  this.craft.quaternion.setFromUnitVectors(UP, vS.set(p.dir[0], p.dir[1], p.dir[2]));
+  this.craft.children[1].scale.setScalar(p.boostActive ? 1.5 : 1);
+};
+const trails = [new Trail(COLORS[0]), new Trail(COLORS[1])];
+
+// Crash bursts
+const NP = 140;
+const bursts = COLORS.map(color => {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(NP * 3), 3));
+  const pts = new THREE.Points(g, new THREE.PointsMaterial({ color, size: 0.22, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+  pts.frustumCulled = false; pts.visible = false;
+  scene.add(pts);
+  return { pts, vel: new Float32Array(NP * 3), life: 0 };
+});
+function burst(i, at) {
+  const b = bursts[i], pos = b.pts.geometry.attributes.position.array;
+  for (let k = 0; k < NP; k++) {
+    pos[k * 3] = at.x; pos[k * 3 + 1] = at.y; pos[k * 3 + 2] = at.z;
+    const th = Math.random() * 6.283, ph = Math.acos(2 * Math.random() - 1), sp = 2 + Math.random() * 9;
+    b.vel[k * 3] = Math.sin(ph) * Math.cos(th) * sp; b.vel[k * 3 + 1] = Math.cos(ph) * sp; b.vel[k * 3 + 2] = Math.sin(ph) * Math.sin(th) * sp;
+  }
+  b.life = 1; b.pts.visible = true;
+}
+function updateBursts(dt) {
+  for (const b of bursts) {
+    if (b.life <= 0) continue;
+    b.life -= dt / 1.3;
+    const pos = b.pts.geometry.attributes.position.array;
+    for (let k = 0; k < NP * 3; k++) pos[k] += b.vel[k] * dt;
+    b.pts.geometry.attributes.position.needsUpdate = true;
+    b.pts.material.opacity = Math.max(0, b.life);
+    if (b.life <= 0) b.pts.visible = false;
+  }
+}
+
+// In-headset status panel
+const vrCanvas = document.createElement('canvas'); vrCanvas.width = 1024; vrCanvas.height = 384;
+const vrCtx = vrCanvas.getContext('2d');
+const vrTex = new THREE.CanvasTexture(vrCanvas);
+const vrPanel = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.5625), new THREE.MeshBasicMaterial({ map: vrTex, transparent: true, depthTest: false, depthWrite: false, fog: false }));
+vrPanel.position.set(0, -0.5, -2.1); vrPanel.rotation.x = -0.2; vrPanel.renderOrder = 10; vrPanel.visible = false;
+cams[0].add(vrPanel);
+let vrKey = '';
+function drawVrPanel(msg, sub, status, boost) {
+  const key = [msg, sub, status, Math.round(boost * 20)].join('|');
+  if (key === vrKey) return;
+  vrKey = key;
+  const c = vrCtx; c.clearRect(0, 0, 1024, 384);
+  c.textAlign = 'center'; c.fillStyle = '#e9edff';
+  if (msg) { c.font = '700 120px "Chakra Petch", sans-serif'; c.fillText(msg, 512, 150); }
+  if (sub) { c.font = '400 44px "Chakra Petch", sans-serif'; c.fillText(sub, 512, 220); }
+  c.font = '600 40px "Chakra Petch", sans-serif'; c.fillStyle = '#8f97c9'; c.fillText(status, 512, 300);
+  c.fillStyle = 'rgba(255,255,255,.15)'; c.fillRect(312, 330, 400, 14);
+  c.fillStyle = '#b8ff3c'; c.fillRect(312, 330, 400 * boost, 14);
+  vrTex.needsUpdate = true;
+}
+
+// ---------- Sound ----------
+let ac = null;
+function wake() {
+  try {
+    if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+    if (ac.state === 'suspended') ac.resume();
+  } catch (e) { ac = null; }
+}
+function tone(f, d, type, vol, f2) {
+  if (!ac) return;
+  const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
+  o.type = type || 'square'; o.frequency.setValueAtTime(f, t);
+  if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d);
+  g.gain.setValueAtTime(vol || 0.05, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+}
+function boom() {
+  if (!ac) return;
+  const n = ac.sampleRate * 0.6, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2);
+  const s = ac.createBufferSource(), g = ac.createGain(); s.buffer = buf; g.gain.value = 0.25;
+  s.connect(g); g.connect(ac.destination); s.start();
+  tone(160, 0.5, 'sawtooth', 0.12, 30);
+}
+
+// ---------- Match state ----------
+let state = 'menu';       // menu | countdown | playing | over
+let mode = '1p';
+let difficulty = 'normal';
+let game = null;
+let countdown = 0, lastBeep = 0, overAt = 0, clockNow = 0;
+let split = false;
+const score = [0, 0];
+const boostHeld = [false, false];
+const held = { keys: {}, touch: false, pad: [false, false], xr: false };
+const names = () => mode === '1p' ? ['You', 'Computer'] : ['Player 1', 'Player 2'];
+
+function newGame(specs) {
+  game = new Game(specs);
+  trails.forEach(t => t.reset());
+  boundsToBox(game.min, game.max, wallCur.c, wallCur.s);
+  for (let i = 0; i < 2; i++) {
+    const h = game.players[i].heading;
+    views[i].yaw = Math.atan2(-h[0], -h[2]);
+    views[i].y = game.players[i].pos[1] + 0.5;
+  }
+}
+function attract() { newGame([{ ai: true, difficulty: 'normal' }, { ai: true, difficulty: 'hard' }]); }
+
+function startMatch(m) {
+  wake();
+  mode = m;
+  newGame(m === '1p' ? [{ ai: false }, { ai: true, difficulty }] : [{ ai: false }, { ai: false }]);
+  state = 'countdown'; countdown = 3; lastBeep = 4;
+  $('menu').hidden = true; $('hud').hidden = false;
+  $('acts').hidden = true;
+  const n = names(); $('who0').textContent = n[0]; $('who1').textContent = n[1];
+  $('hint').textContent = '';
+  layout();
+}
+function finishMatch() {
+  state = 'over'; overAt = clockNow;
+  if (game.winner !== null) score[game.winner]++;
+  const n = names();
+  const msg = game.winner === null ? 'Draw' : mode === '1p' ? (game.winner === 0 ? 'You win' : 'You crashed') : n[game.winner] + ' wins';
+  $('msg').textContent = msg;
+  $('msg').style.color = game.winner === null ? '' : game.winner === 0 ? 'var(--p1)' : 'var(--p2)';
+  $('sub').textContent = 'Lasted ' + fmt(game.time) + '  ·  ' + n[0] + ' ' + score[0] + ' – ' + score[1] + ' ' + n[1];
+  $('big').hidden = false; $('acts').hidden = false;
+  $('boostBtn').hidden = true;
+  tone(game.winner === 0 ? 660 : 220, 0.5, 'triangle', 0.08, game.winner === 0 ? 990 : 110);
+}
+function toMenu() {
+  state = 'menu'; split = false;
+  $('menu').hidden = false; $('hud').hidden = true; $('big').hidden = true; $('boostBtn').hidden = true;
+  attract(); layout();
+}
+function rematch() { if (state === 'over' && clockNow - overAt > 0.6) startMatch(mode); }
+const fmt = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+
+function steer(i, cmd) {
+  if (state !== 'playing' || !game) return;
+  if (mode === '1p') i = 0;
+  game.input(i, cmd);
+}
+
+// ---------- Input ----------
+const KEYMAP = {
+  KeyA: [0, 'L'], KeyD: [0, 'R'], KeyW: [0, 'U'], KeyS: [0, 'D'], KeyE: [0, 'F'],
+  ArrowLeft: [1, 'L'], ArrowRight: [1, 'R'], ArrowUp: [1, 'U'], ArrowDown: [1, 'D'], Slash: [1, 'F'],
+};
+addEventListener('keydown', e => {
+  if (e.target && e.target.tagName === 'BUTTON' && (e.code === 'Enter' || e.code === 'Space') && state !== 'playing') return;
+  wake();
+  held.keys[e.code] = true;
+  if (state === 'menu') return;
+  if (KEYMAP[e.code]) { if (!e.repeat) steer(KEYMAP[e.code][0], KEYMAP[e.code][1]); e.preventDefault(); }
+  else if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) rematch(); }
+  else if (e.code === 'Enter') rematch();
+  else if (e.code === 'Escape' && !renderer.xr.isPresenting) toMenu();
+});
+addEventListener('keyup', e => { held.keys[e.code] = false; });
+addEventListener('blur', () => { held.keys = {}; });
+
+// Touch: swipe to steer. In split screen each half steers its own drone.
+let swipe = null;
+canvas.addEventListener('pointerdown', e => { wake(); swipe = { x: e.clientX, y: e.clientY, id: e.pointerId }; });
+canvas.addEventListener('pointermove', e => {
+  if (!swipe || swipe.id !== e.pointerId) return;
+  const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 26) return;
+  let who = 0;
+  if (split) who = innerWidth >= innerHeight ? (swipe.x > innerWidth / 2 ? 1 : 0) : (swipe.y > innerHeight / 2 ? 1 : 0);
+  steer(who, Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'L' : 'R') : (dy < 0 ? 'U' : 'D'));
+  swipe.x = e.clientX; swipe.y = e.clientY;
+});
+const endSwipe = () => { swipe = null; };
+canvas.addEventListener('pointerup', endSwipe); canvas.addEventListener('pointercancel', endSwipe);
+const bb = $('boostBtn');
+bb.addEventListener('pointerdown', e => { held.touch = true; e.preventDefault(); });
+['pointerup', 'pointercancel', 'pointerleave'].forEach(n => bb.addEventListener(n, () => { held.touch = false; }));
+const isTouch = matchMedia('(pointer: coarse)').matches;
+
+// Thumbstick flicks (gamepads and VR controllers)
+const sticks = {};
+function flick(key, x, y, who) {
+  const st = sticks[key] || (sticks[key] = { h: 0, v: 0 });
+  const horiz = Math.abs(x) > Math.abs(y);
+  if (Math.abs(x) < 0.35) st.h = 0;
+  if (Math.abs(y) < 0.35) st.v = 0;
+  if (horiz && Math.abs(x) > 0.6 && st.h !== Math.sign(x)) { st.h = Math.sign(x); steer(who, x < 0 ? 'L' : 'R'); }
+  if (!horiz && Math.abs(y) > 0.6 && st.v !== Math.sign(y)) { st.v = Math.sign(y); steer(who, y < 0 ? 'U' : 'D'); }
+}
+const edges = {};
+function pressed(key, down) { const was = edges[key]; edges[key] = down; return down && !was; }
+
+function pollPads() {
+  held.pad[0] = held.pad[1] = false; held.xr = false;
+  const session = renderer.xr.getSession && renderer.xr.getSession();
+  if (session) {
+    let k = 0;
+    for (const src of session.inputSources) {
+      const gp = src.gamepad; if (!gp) continue;
+      const key = 'xr' + (src.handedness || k++);
+      flick(key, gp.axes[2] || 0, gp.axes[3] || 0, 0);
+      const trig = gp.buttons[0] && gp.buttons[0].pressed;
+      if (trig) held.xr = true;
+      if (pressed(key + 't', !!trig)) rematch();
+      if (pressed(key + 'a', !!(gp.buttons[4] && gp.buttons[4].pressed))) steer(0, 'F');
+    }
+    return;
+  }
+  let pads = [];
+  try { pads = navigator.getGamepads ? navigator.getGamepads() : []; } catch (e) { pads = []; }
+  let slot = 0;
+  for (const gp of pads) {
+    if (!gp || !gp.connected || slot > 1) continue;
+    const who = slot++, key = 'gp' + gp.index, b = i => !!(gp.buttons[i] && gp.buttons[i].pressed);
+    flick(key, gp.axes[0] || 0, gp.axes[1] || 0, who);
+    flick(key + 'd', (b(15) ? 1 : 0) - (b(14) ? 1 : 0), (b(13) ? 1 : 0) - (b(12) ? 1 : 0), who);
+    if (b(0) || b(7)) held.pad[who] = true;
+    if (pressed(key + 's', b(9) || b(0))) rematch();
+    if (pressed(key + 'f', b(1))) steer(who, 'F');
+  }
+}
+function readBoost() {
+  const k = held.keys;
+  if (mode === '1p') boostHeld[0] = !!(k.ShiftLeft || k.ShiftRight || k.Space || held.touch || held.pad[0] || held.pad[1] || held.xr);
+  else { boostHeld[0] = !!(k.ShiftLeft || held.pad[0]); boostHeld[1] = !!(k.ShiftRight || held.pad[1]); }
+}
+
+// ---------- Menu wiring ----------
+document.querySelectorAll('[data-diff]').forEach(b => b.addEventListener('click', () => {
+  difficulty = b.dataset.diff;
+  document.querySelectorAll('[data-diff]').forEach(o => o.setAttribute('aria-pressed', String(o === b)));
+}));
+$('b1').addEventListener('click', () => startMatch('1p'));
+$('b2').addEventListener('click', () => startMatch('2p'));
+$('again').addEventListener('click', () => { overAt = -9; rematch(); });
+$('back').addEventListener('click', toMenu);
+
+// VR session
+const vrnote = $('vrnote');
+if (navigator.xr && navigator.xr.isSessionSupported) {
+  navigator.xr.isSessionSupported('immersive-vr').then(ok => {
+    if (ok) { $('bvr').hidden = false; vrnote.textContent = 'Headset found. VR plays best seated, with room to turn your head.'; }
+    else vrnote.textContent = 'No VR headset found here. Open this page in a headset browser to play in VR.';
+  }).catch(() => { vrnote.textContent = 'VR is blocked in this view. Open the game from its own web address in a headset browser.'; });
+} else vrnote.textContent = 'This browser has no VR support. Open this page in a headset browser to play in VR.';
+
+$('bvr').addEventListener('click', async () => {
+  wake();
+  try {
+    const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] });
+    session.addEventListener('end', () => {
+      vrPanel.visible = false;
+      rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0);
+      toMenu();
+    });
+    await renderer.xr.setSession(session);
+    startMatch('1p');
+  } catch (e) {
+    vrnote.textContent = 'VR could not start: ' + (e && e.message ? e.message : 'the headset refused the session') + '.';
+  }
+});
+
+// ---------- Layout ----------
+function layout() {
+  if (renderer.xr.isPresenting) return;
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  split = state !== 'menu' && mode === '2p';
+  const hud = $('hud');
+  hud.className = split ? (w >= h ? 'split-h' : 'split-v') : 'solo';
+}
+addEventListener('resize', layout);
+
+// ---------- Cameras ----------
+const look = new THREE.Vector3();
+function chase(i, dt, vr) {
+  const p = game.players[i], v = views[i], head = trails[i].head;
+  const target = Math.atan2(-p.heading[0], -p.heading[2]);
+  if (vr) v.yaw = target;
+  else {
+    let d = target - v.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+    v.yaw += d * (1 - Math.exp(-dt * 9));
+  }
+  v.y += (head.y - v.y) * (vr ? 1 : 1 - Math.exp(-dt * 6));
+  const s = Math.sin(v.yaw), c = Math.cos(v.yaw);
+  if (vr) {
+    rig.position.set(head.x + s * 3.4, head.y - 1.0, head.z + c * 3.4);
+    rig.rotation.set(0, v.yaw, 0);
+  } else {
+    v.cam.position.set(head.x + s * 6, v.y + 2.3, head.z + c * 6);
+    v.cam.lookAt(look.set(head.x - s * 4, head.y + 0.3, head.z - c * 4));
+  }
+}
+
+// ---------- Frame loop ----------
+let prevT = 0, orbit = 0;
+function handleEvents() {
+  for (const ev of game.events) {
+    if (ev.type === 'crash') { burst(ev.id, trails[ev.id].head); if (state !== 'menu') boom(); }
+    else if (state === 'menu') continue;
+    else if (ev.type === 'turn') { if (!game.players[ev.id].ai) tone(ev.id ? 520 : 700, 0.06, 'square', 0.03); }
+    else if (ev.type === 'warn') { tone(880, 0.18, 'sawtooth', 0.05); setTimeout(() => tone(880, 0.18, 'sawtooth', 0.05), 260); }
+    else if (ev.type === 'shrink') tone(90, 0.5, 'sine', 0.2, 45);
+  }
+  game.events.length = 0;
+}
+
+function frame(ms) {
+  const t = ms / 1000;
+  const dt = Math.min(0.05, Math.max(0, t - prevT));
+  prevT = t; clockNow = t;
+  const vr = renderer.xr.isPresenting;
+
+  pollPads();
+
+  if (state === 'countdown') {
+    countdown -= dt;
+    const n = Math.ceil(countdown);
+    if (n !== lastBeep && n > 0) { lastBeep = n; tone(440, 0.12, 'square', 0.05); }
+    $('big').hidden = false; $('msg').style.color = ''; $('msg').textContent = n > 0 ? String(n) : 'GO'; $('sub').textContent = '';
+    if (countdown <= 0) {
+      state = 'playing'; tone(880, 0.3, 'square', 0.06);
+      setTimeout(() => { if (state === 'playing') $('big').hidden = true; }, 500);
+      $('boostBtn').hidden = !(isTouch && mode === '1p' && !vr);
+    }
+  } else if (state === 'playing') {
+    readBoost();
+    for (let i = 0; i < 2; i++) if (!game.players[i].ai) game.players[i].boosting = boostHeld[i];
+    game.update(dt);
+    handleEvents();
+    if (game.over) finishMatch();
+  } else if (state === 'menu') {
+    game.update(dt);
+    handleEvents();
+    if (game.over) { orbit += dt; if (orbit > 2.5) { orbit = 0; attract(); } }
+  }
+
+  for (let i = 0; i < 2; i++) trails[i].update(game.players[i]);
+  updateBursts(dt);
+
+  // Walls ease toward the live bounds; the next position flashes red during a warning.
+  boundsToBox(game.min, game.max, tmpC, tmpS);
+  const k = 1 - Math.exp(-dt * 6);
+  wallCur.c.lerp(tmpC, k); wallCur.s.lerp(tmpS, k);
+  wallEdges.position.copy(wallCur.c); wallEdges.scale.copy(wallCur.s);
+  wallFill.position.copy(wallCur.c); wallFill.scale.copy(wallCur.s);
+  const fb = game.warning && game.futureBounds();
+  nextEdges.visible = !!fb;
+  wallFill.material.opacity = fb ? 0.07 + 0.06 * Math.sin(t * 12) : 0.04;
+  if (fb) { boundsToBox(fb.min, fb.max, nextEdges.position, nextEdges.scale); nextEdges.material.opacity = 0.5 + 0.5 * Math.sin(t * 12); }
+
+  // HUD
+  if (state !== 'menu') {
+    $('clock').textContent = fmt(game.time);
+    $('warn').hidden = !(game.warning && state === 'playing');
+    $('boost0').style.width = (game.players[0].energy * 100) + '%';
+    $('boost1').style.width = (game.players[1].energy * 100) + '%';
+  }
+
+  if (vr) {
+    chase(0, dt, true);
+    vrPanel.visible = true;
+    const msg = state === 'countdown' ? (countdown > 0 ? String(Math.ceil(countdown)) : 'GO')
+      : state === 'over' ? $('msg').textContent : (game.warning ? 'WALLS CLOSING' : '');
+    const sub = state === 'over' ? 'Pull a trigger for a rematch' : '';
+    drawVrPanel(msg, sub, fmt(game.time) + '   You ' + score[0] + ' – ' + score[1] + ' Computer', game.players[0].energy);
+    renderer.render(scene, cams[0]);
+    return;
+  }
+
+  const w = innerWidth, h = innerHeight;
+  if (state === 'menu') {
+    const a = t * 0.12;
+    cams[0].position.set(Math.sin(a) * 34, 17, Math.cos(a) * 34);
+    cams[0].lookAt(look.set(0, NY / 2 - 1, 0));
+  } else chase(0, dt, false);
+
+  if (split) {
+    chase(1, dt, false);
+    const wide = w >= h;
+    renderer.setScissorTest(true);
+    for (let i = 0; i < 2; i++) {
+      const vw = wide ? w / 2 : w, vh = wide ? h : h / 2;
+      const x = wide ? i * vw : 0, y = wide ? 0 : (1 - i) * vh;
+      renderer.setViewport(x, y, vw, vh); renderer.setScissor(x, y, vw, vh);
+      cams[i].aspect = vw / vh; cams[i].updateProjectionMatrix();
+      renderer.render(scene, cams[i]);
+    }
+  } else {
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, w, h);
+    cams[0].aspect = w / h; cams[0].updateProjectionMatrix();
+    renderer.render(scene, cams[0]);
+  }
+}
+
+attract();
+layout();
+renderer.setAnimationLoop(frame);
+window.__skyloom = { get state() { return state; }, get game() { return game; } };
+})();
+</script>
+</body>
+</html>
