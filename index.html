@@ -372,6 +372,7 @@ rig.add(cams[0]);
 scene.add(cams[1]);
 const views = [{ cam: cams[0], yaw: 0, pitch: 0 }, { cam: cams[1], yaw: 0, pitch: 0 }];
 
+let roomMat = null;
 (function buildRoom() {
   // Each wall has its own colour so you always know which way you are facing.
   const v = [], col = [];
@@ -394,7 +395,8 @@ const views = [{ cam: cams[0], yaw: 0, pitch: 0 }, { cam: cams[1], yaw: 0, pitch
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  scene.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7 })));
+  roomMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7 });
+  scene.add(new THREE.LineSegments(g, roomMat));
   for (const [hex, w, d, x, z] of [[WALL.n, AX, 0.2, 0, -HALF_Z], [WALL.s, AX, 0.2, 0, HALF_Z], [WALL.w, 0.2, AZ, -HALF_X, 0], [WALL.e, 0.2, AZ, HALF_X, 0]]) {
     const band = new THREE.Mesh(new THREE.BoxGeometry(w, 1, d), new THREE.MeshBasicMaterial({ color: hex }));
     band.position.set(x, 0.5, z); scene.add(band);
@@ -406,8 +408,21 @@ const views = [{ cam: cams[0], yaw: 0, pitch: 0 }, { cam: cams[1], yaw: 0, pitch
 
 // Closing walls
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
-const wallEdges = new THREE.LineSegments(new THREE.EdgesGeometry(unitBox), new THREE.LineBasicMaterial({ color: 0xff5a4f }));
-const wallFill = new THREE.Mesh(unitBox, new THREE.MeshBasicMaterial({ color: 0xff5a4f, transparent: true, opacity: 0.05, side: THREE.BackSide, depthWrite: false }));
+const wallGridGeo = (function () {
+  // A unit cube with a 12 x 12 grid on every face
+  const v = [], N = 12;
+  for (let a = 0; a < 3; a++) for (const side of [-0.5, 0.5]) for (let i = 0; i <= N; i++) {
+    const t = i / N - 0.5, b = (a + 1) % 3, c = (a + 2) % 3;
+    for (const [u, w] of [[b, c], [c, b]]) {
+      const p = [0, 0, 0], q = [0, 0, 0];
+      p[a] = q[a] = side; p[u] = q[u] = t; p[w] = -0.5; q[w] = 0.5;
+      v.push(p[0], p[1], p[2], q[0], q[1], q[2]);
+    }
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); return g;
+})();
+const wallEdges = new THREE.LineSegments(wallGridGeo, new THREE.LineBasicMaterial({ color: 0xff5a4f, fog: false }));
+const wallFill = new THREE.Mesh(unitBox, new THREE.MeshBasicMaterial({ color: 0xff2a2a, transparent: true, opacity: 0.16, side: THREE.BackSide, depthWrite: false, fog: false }));
 scene.add(wallEdges, wallFill);
 
 // Trails and craft
@@ -499,7 +514,7 @@ Trail.prototype.update = function (p) {
   }
   this.craft.visible = p.alive || this.keep;
   this.craft.position.copy(this.head);
-  this.craft.rotation.set(p.pitch, p.yaw, -p.sx * 0.3); // banks into turns
+  this.craft.rotation.set(p.pitch, p.yaw, this.keep ? 0 : -p.sx * 0.1); // same angles as the pilot's view, so the cockpit never moves around you
   const ud = this.craft.userData;
   ud.stick.rotation.set(-0.2 + p.sy * 0.25, 0, -p.sx * 0.3); ud.grip.rotation.copy(ud.stick.rotation);
   ud.grip.position.set(p.sx * 0.04, -0.49, -0.41 + p.sy * 0.035);
@@ -785,10 +800,11 @@ $('bvr').addEventListener('click', async () => {
     const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] });
     session.addEventListener('end', () => {
       trails[0].keep = false;
-      rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0);
+      rig.position.set(0, 0, 0); rig.quaternion.set(0, 0, 0, 1);
       toMenu();
     });
     await renderer.xr.setSession(session);
+    trails[0].keep = true;
     startMatch('1p');
   } catch (e) {
     vrnote.textContent = 'VR could not start: ' + (e && e.message ? e.message : 'the headset refused the session') + '.';
@@ -806,20 +822,19 @@ function layout() {
 addEventListener('resize', layout);
 
 // ---------- Cameras ----------
-// Cockpit view. In VR the world stays level and your head is free to look anywhere;
-// the cockpit frame pitches and banks around you to show what the drone is doing.
+// Cockpit view. The seat is fixed inside the cockpit; in VR your head is free to look anywhere.
 const look = new THREE.Vector3();
 const eye0 = new THREE.Vector3(0, 1.2, 0), tmpV = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
 let headYaw0 = 0, needEye = true;
 function chase(i, dt, vr) {
   const p = game.players[i], v = views[i], head = trails[i].head;
   if (vr) {
-    const yaw = p.yaw - headYaw0, s = Math.sin(yaw), c = Math.cos(yaw);
-    rig.position.set(head.x - (eye0.x * c + eye0.z * s), head.y - eye0.y, head.z - (-eye0.x * s + eye0.z * c));
-    rig.rotation.set(0, yaw, 0);
+    // The whole seat turns and pitches with the drone, so straight out of the windshield is always where you are going.
+    rig.quaternion.copy(trails[i].craft.quaternion).multiply(tmpQ.setFromAxisAngle(UP, -headYaw0));
+    rig.position.copy(head).sub(tmpV.copy(eye0).applyQuaternion(rig.quaternion));
   } else {
     v.cam.position.copy(head);
-    v.cam.rotation.set(p.pitch, p.yaw, -p.sx * 0.12, 'YXZ');
+    v.cam.rotation.set(p.pitch, p.yaw, -p.sx * 0.1, 'YXZ');
   }
 }
 
@@ -870,7 +885,8 @@ function frame(ms, xrFrame) {
   wallEdges.position.set(0, AY / 2, 0); wallEdges.scale.set(h[0] * 2, h[1] * 2, h[2] * 2);
   wallFill.position.copy(wallEdges.position); wallFill.scale.copy(wallEdges.scale);
   wallEdges.visible = wallFill.visible = game.closing;
-  wallFill.material.opacity = 0.06 + 0.03 * Math.sin(t * 5);
+  wallFill.material.opacity = 0.16 + 0.05 * Math.sin(t * 5);
+  roomMat.opacity += ((game.closing ? 0.12 : 0.7) - roomMat.opacity) * Math.min(1, dt * 2);
 
   const warn = game.closing && game.time < CLOSE_START + 4 && state === 'playing';
   if (state !== 'menu') {
@@ -900,7 +916,6 @@ function frame(ms, xrFrame) {
         needEye = false;
       }
     }
-    trails[0].keep = true;
     chase(0, dt, true);
     renderer.render(scene, cams[0]);
     return;
