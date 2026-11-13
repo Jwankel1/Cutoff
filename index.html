@@ -62,6 +62,10 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
 .pane .who { position: absolute; left: 16px; top: 14px; font-size: 14px; letter-spacing: .14em; text-transform: uppercase; font-weight: 600; }
 .pane .boost { position: absolute; left: 16px; top: 38px; width: 120px; height: 6px; background: rgba(255,255,255,.12); border-radius: 3px; overflow: hidden; }
 .pane .boost i { display: block; height: 100%; width: 100%; background: currentColor; }
+.pane .turn { position: absolute; left: 50%; bottom: 16%; transform: translateX(-50%); font-size: 64px; line-height: 1; opacity: 0; }
+.pane .turn.show { animation: turnflash .45s ease-out; }
+@keyframes turnflash { 0% { opacity: 1; } 100% { opacity: 0; } }
+#hud.solo #pane1 .turn { display: none; }
 #pane0 { color: var(--p1); } #pane1 { color: var(--p2); }
 #hud.solo #pane1 { width: auto; height: auto; left: auto; right: 0; top: 0; }
 #hud.solo #pane1 .who, #hud.solo #pane1 .boost { left: auto; right: 16px; }
@@ -95,8 +99,8 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
 <canvas id="c"></canvas>
 
 <div id="hud" class="solo" hidden>
-  <div class="pane" id="pane0"><div class="who" id="who0">You</div><div class="boost"><i id="boost0"></i></div></div>
-  <div class="pane" id="pane1"><div class="who" id="who1">Computer</div><div class="boost"><i id="boost1"></i></div></div>
+  <div class="pane" id="pane0"><div class="who" id="who0">You</div><div class="boost"><i id="boost0"></i></div><div class="turn" id="turn0"></div></div>
+  <div class="pane" id="pane1"><div class="who" id="who1">Computer</div><div class="boost"><i id="boost1"></i></div><div class="turn" id="turn1"></div></div>
   <div id="clock">0:00</div>
   <div id="warn" hidden>WALLS CLOSING</div>
   <div id="big" hidden><div class="msg" id="msg"></div><div class="sub" id="sub"></div>
@@ -397,23 +401,33 @@ const views = [{ cam: cams[0], yaw: 0, y: 0 }, { cam: cams[1], yaw: 0, y: 0 }];
 
 // Room: grid lines on all six faces
 (function buildRoom() {
-  const v = [];
-  const S = 2;
-  for (const y of [0, NY]) {
-    for (let x = -HALF_X; x <= HALF_X; x += S) v.push(x, y, -HALF_Z, x, y, HALF_Z);
-    for (let z = -HALF_Z; z <= HALF_Z; z += S) v.push(-HALF_X, y, z, HALF_X, y, z);
+  // Each wall has its own colour so you can tell which way you are facing after a turn.
+  const v = [], col = [];
+  const S = 2, c = new THREE.Color();
+  const line = (hex, x1, y1, z1, x2, y2, z2) => { v.push(x1, y1, z1, x2, y2, z2); c.set(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
+  const FLOOR = 0x4a58c8, CEIL = 0x1e2452;
+  const WALL = { n: 0x2f7bff, s: 0xd9822b, w: 0x18b3a4, e: 0x8a55f0 };
+  for (const [y, hex] of [[0, FLOOR], [NY, CEIL]]) {
+    for (let x = -HALF_X; x <= HALF_X; x += S) line(hex, x, y, -HALF_Z, x, y, HALF_Z);
+    for (let z = -HALF_Z; z <= HALF_Z; z += S) line(hex, -HALF_X, y, z, HALF_X, y, z);
   }
-  for (const z of [-HALF_Z, HALF_Z]) {
-    for (let x = -HALF_X; x <= HALF_X; x += S) v.push(x, 0, z, x, NY, z);
-    for (let y = S; y < NY; y += S) v.push(-HALF_X, y, z, HALF_X, y, z);
+  for (const [z, hex] of [[-HALF_Z, WALL.n], [HALF_Z, WALL.s]]) {
+    for (let x = -HALF_X; x <= HALF_X; x += S) line(hex, x, 0, z, x, NY, z);
+    for (let y = S; y < NY; y += S) line(hex, -HALF_X, y, z, HALF_X, y, z);
   }
-  for (const x of [-HALF_X, HALF_X]) {
-    for (let z = -HALF_Z + S; z < HALF_Z; z += S) v.push(x, 0, z, x, NY, z);
-    for (let y = S; y < NY; y += S) v.push(x, y, -HALF_Z, x, y, HALF_Z);
+  for (const [x, hex] of [[-HALF_X, WALL.w], [HALF_X, WALL.e]]) {
+    for (let z = -HALF_Z + S; z < HALF_Z; z += S) line(hex, x, 0, z, x, NY, z);
+    for (let y = S; y < NY; y += S) line(hex, x, y, -HALF_Z, x, y, HALF_Z);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
-  scene.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x34409a, transparent: true, opacity: 0.55 })));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  scene.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7 })));
+  // A solid band along the foot of each wall, readable at a glance
+  for (const [hex, w, d, x, z] of [[WALL.n, NX, 0.1, 0, -HALF_Z], [WALL.s, NX, 0.1, 0, HALF_Z], [WALL.w, 0.1, NZ, -HALF_X, 0], [WALL.e, 0.1, NZ, HALF_X, 0]]) {
+    const band = new THREE.Mesh(new THREE.BoxGeometry(w, 0.5, d), new THREE.MeshBasicMaterial({ color: hex }));
+    band.position.set(x, 0.25, z); scene.add(band);
+  }
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(NX, NZ), new THREE.MeshBasicMaterial({ color: 0x090b1e }));
   floor.rotation.x = -Math.PI / 2; floor.position.y = -0.02;
   scene.add(floor);
@@ -601,6 +615,7 @@ function newGame(specs) {
     const h = game.players[i].heading;
     views[i].yaw = Math.atan2(-h[0], -h[2]);
     views[i].y = game.players[i].pos[1] + 0.5;
+    views[i].h = h.slice();
   }
 }
 function attract() { newGame([{ ai: true, difficulty: 'normal' }, { ai: true, difficulty: 'hard' }]); }
@@ -779,11 +794,8 @@ let eyeY = 1.2, needEye = true;
 function chase(i, dt, vr) {
   const p = game.players[i], v = views[i], head = trails[i].head;
   const target = Math.atan2(-p.heading[0], -p.heading[2]);
-  if (vr) v.yaw = target;
-  else {
-    let d = target - v.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
-    v.yaw += d * (1 - Math.exp(-dt * 9));
-  }
+  let d = target - v.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+  v.yaw += d * (1 - Math.exp(-dt * (vr ? 14 : 9)));
   v.y += (head.y - v.y) * (vr ? 1 : 1 - Math.exp(-dt * 6));
   const s = Math.sin(v.yaw), c = Math.cos(v.yaw);
   if (vr) {
@@ -797,11 +809,25 @@ function chase(i, dt, vr) {
 
 // ---------- Frame loop ----------
 let prevT = 0, orbit = 0;
+const turnFlash = [{ glyph: '', until: 0 }, { glyph: '', until: 0 }];
+function showTurn(i) {
+  const p = game.players[i], v = views[i], old = v.h || p.heading, h = p.heading;
+  let glyph;
+  if (p.dir[1] > 0) { glyph = '\u25B2'; tone(500, 0.12, 'square', 0.03, 900); }
+  else if (p.dir[1] < 0) { glyph = '\u25BC'; tone(700, 0.12, 'square', 0.03, 380); }
+  else if (h[0] === old[2] && h[2] === -old[0]) { glyph = '\u25C0'; tone(440, 0.07, 'square', 0.035); }
+  else if (h[0] === -old[2] && h[2] === old[0]) { glyph = '\u25B6'; tone(740, 0.07, 'square', 0.035); }
+  else { glyph = '\u2501'; tone(600, 0.05, 'square', 0.03); }
+  v.h = h.slice();
+  turnFlash[i].glyph = glyph; turnFlash[i].until = clockNow + 0.45;
+  const el = $('turn' + i);
+  el.textContent = glyph; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+}
 function handleEvents() {
   for (const ev of game.events) {
     if (ev.type === 'crash') { burst(ev.id, trails[ev.id].head); if (state !== 'menu') boom(); }
     else if (state === 'menu') continue;
-    else if (ev.type === 'turn') { if (!game.players[ev.id].ai) tone(ev.id ? 520 : 700, 0.06, 'square', 0.03); }
+    else if (ev.type === 'turn') { if (!game.players[ev.id].ai) showTurn(ev.id); }
     else if (ev.type === 'warn') { tone(880, 0.18, 'sawtooth', 0.05); setTimeout(() => tone(880, 0.18, 'sawtooth', 0.05), 260); }
     else if (ev.type === 'shrink') tone(90, 0.5, 'sine', 0.2, 45);
   }
@@ -869,7 +895,7 @@ function frame(ms, xrFrame) {
     chase(0, dt, true);
     vrPanel.visible = true;
     const msg = state === 'countdown' ? (countdown > 0 ? String(Math.ceil(countdown)) : 'GO')
-      : state === 'over' ? $('msg').textContent : (game.warning ? 'WALLS CLOSING' : '');
+      : state === 'over' ? $('msg').textContent : clockNow < turnFlash[0].until ? turnFlash[0].glyph : (game.warning ? 'WALLS CLOSING' : '');
     const sub = state === 'over' ? 'Pull a trigger for a rematch' : '';
     drawVrPanel(msg, sub, fmt(game.time) + '   You ' + score[0] + ' – ' + score[1] + ' Computer', game.players[0].energy);
     renderer.render(scene, cams[0]);
