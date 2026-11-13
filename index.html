@@ -146,7 +146,7 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
   const SEG = 0.6;                           // trail sample spacing
   const HIT_R = 0.42;                        // how close to a trail counts as a crash
   const CELL = 2, MAXPTS = 5000;
-  const CLOSE_START = 15, CLOSE_RATE = 0.3, MIN_HALF = 2;
+  const CLOSE_START = 15, CLOSE_EVERY = 6, CLOSE_STEP = 2.4, CLOSE_TIME = 1.2, MIN_HALF = 2;
   const GX = AX / CELL, GY = AY / CELL, GZ = AZ / CELL;
   const SKIP = 9;                            // newest own segments that cannot hurt you
 
@@ -166,6 +166,7 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
   class Game {
     constructor(specs) {
       this.half = [AX / 2, AY / 2, AZ / 2];
+      this.target = this.half.slice(); this.nextShrink = CLOSE_START;
       this.time = 0; this.closing = false; this.over = false; this.winner = null;
       this.events = [];
       this.cells = new Array(GX * GY * GZ);
@@ -245,6 +246,8 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
         ox = opp.pos[0] + opp.dir[0] * SPEED * 0.5; oy = opp.pos[1] + opp.dir[1] * SPEED * 0.5; oz = opp.pos[2] + opp.dir[2] * SPEED * 0.5;
         oppDist = Math.hypot(p.pos[0] - opp.pos[0], p.pos[1] - opp.pos[1], p.pos[2] - opp.pos[2]);
       }
+      // Allow for a wall move that is under way or due within the lookahead
+      const pending = (this.half[0] - this.target[0]) + (this.nextShrink - this.time < N * h && this.target[0] > MIN_HALF ? CLOSE_STEP : 0);
       const f = [0, 0, 0];
       let best = -Infinity, bx = 0, by = 0;
       const ok = [];
@@ -262,7 +265,7 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
           fwd(yaw, pitch, f);
           x += f[0] * V * h; y += f[1] * V * h; z += f[2] * V * h;
           if (s === 4) { ex = x; ey = y; ez = z; }
-          const m = 0.5 + (this.closing ? CLOSE_RATE * s * h : 0);
+          const m = 0.5 + pending;
           if (!this.inside(x, y, z, m) || this.hit(x, y, z, HIT_R + 0.2, p.id, skip)) { survived = s; break; }
           if (!this.inside(x, y, z, m + 1.5) || this.hit(x, y, z, prof.margin + 0.4, p.id, skip)) near++;
         }
@@ -295,12 +298,21 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
     update(dt) {
       if (this.over) return;
       this.time += dt;
-      if (this.time > CLOSE_START) {
-        if (!this.closing) { this.closing = true; this.events.push({ type: 'closing' }); }
-        const h = this.half;
-        h[0] = Math.max(MIN_HALF, h[0] - CLOSE_RATE * dt);
-        h[2] = Math.max(MIN_HALF, h[2] - CLOSE_RATE * dt);
-        h[1] = Math.max(MIN_HALF, h[1] - CLOSE_RATE * (AY / AX) * dt);
+      // The room shrinks in steps: every few seconds each wall slides inward.
+      if (this.time >= this.nextShrink) {
+        this.nextShrink += CLOSE_EVERY;
+        const g = this.target;
+        if (g[0] > MIN_HALF || g[1] > MIN_HALF || g[2] > MIN_HALF) {
+          g[0] = Math.max(MIN_HALF, g[0] - CLOSE_STEP);
+          g[2] = Math.max(MIN_HALF, g[2] - CLOSE_STEP);
+          g[1] = Math.max(MIN_HALF, g[1] - CLOSE_STEP * (AY / AX));
+          this.closing = true;
+          this.events.push({ type: 'shrink' });
+        }
+      }
+      for (let a = 0; a < 3; a++) {
+        const rate = CLOSE_STEP * (a === 1 ? AY / AX : 1) / CLOSE_TIME;
+        this.half[a] = Math.max(this.target[a], this.half[a] - rate * dt);
       }
       for (const p of this.players) {
         if (!p.alive) continue;
@@ -372,7 +384,8 @@ rig.add(cams[0]);
 scene.add(cams[1]);
 const views = [{ cam: cams[0], yaw: 0, pitch: 0 }, { cam: cams[1], yaw: 0, pitch: 0 }];
 
-let roomMat = null;
+const room = new THREE.Group();
+scene.add(room);
 (function buildRoom() {
   // Each wall has its own colour so you always know which way you are facing.
   const v = [], col = [];
@@ -395,35 +408,17 @@ let roomMat = null;
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  roomMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7 });
-  scene.add(new THREE.LineSegments(g, roomMat));
+  room.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7 })));
   for (const [hex, w, d, x, z] of [[WALL.n, AX, 0.2, 0, -HALF_Z], [WALL.s, AX, 0.2, 0, HALF_Z], [WALL.w, 0.2, AZ, -HALF_X, 0], [WALL.e, 0.2, AZ, HALF_X, 0]]) {
     const band = new THREE.Mesh(new THREE.BoxGeometry(w, 1, d), new THREE.MeshBasicMaterial({ color: hex }));
-    band.position.set(x, 0.5, z); scene.add(band);
+    band.position.set(x, 0.5, z); room.add(band);
   }
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(AX, AZ), new THREE.MeshBasicMaterial({ color: 0x090b1e }));
   floor.rotation.x = -Math.PI / 2; floor.position.y = -0.03;
-  scene.add(floor);
+  room.add(floor);
 })();
 
-// Closing walls
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
-const wallGridGeo = (function () {
-  // A unit cube with a 12 x 12 grid on every face
-  const v = [], N = 12;
-  for (let a = 0; a < 3; a++) for (const side of [-0.5, 0.5]) for (let i = 0; i <= N; i++) {
-    const t = i / N - 0.5, b = (a + 1) % 3, c = (a + 2) % 3;
-    for (const [u, w] of [[b, c], [c, b]]) {
-      const p = [0, 0, 0], q = [0, 0, 0];
-      p[a] = q[a] = side; p[u] = q[u] = t; p[w] = -0.5; q[w] = 0.5;
-      v.push(p[0], p[1], p[2], q[0], q[1], q[2]);
-    }
-  }
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); return g;
-})();
-const wallEdges = new THREE.LineSegments(wallGridGeo, new THREE.LineBasicMaterial({ color: 0xff5a4f, fog: false }));
-const wallFill = new THREE.Mesh(unitBox, new THREE.MeshBasicMaterial({ color: 0xff2a2a, transparent: true, opacity: 0.16, side: THREE.BackSide, depthWrite: false, fog: false }));
-scene.add(wallEdges, wallFill);
 
 // Trails and craft
 const m4 = new THREE.Matrix4(), q0 = new THREE.Quaternion(), vC = new THREE.Vector3(), vS = new THREE.Vector3(), vD = new THREE.Vector3();
@@ -648,6 +643,22 @@ function boom() {
   tone(160, 0.5, 'sawtooth', 0.12, 30);
 }
 
+function rumble() {
+  // Low filtered noise with a sub-bass sweep, plus a controller buzz in VR
+  if (ac) {
+    const dur = 1.4, n = Math.floor(ac.sampleRate * dur), buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) { const e = Math.sin(Math.PI * i / n); d[i] = (Math.random() * 2 - 1) * e * e; }
+    const src = ac.createBufferSource(), lp = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = buf; lp.type = 'lowpass'; lp.frequency.value = 140; g.gain.value = 0.9;
+    src.connect(lp); lp.connect(g); g.connect(ac.destination); src.start();
+    tone(55, dur, 'sine', 0.3, 32);
+  }
+  const session = renderer.xr.getSession && renderer.xr.getSession();
+  if (session) for (const src of session.inputSources) {
+    try { const hap = src.gamepad && src.gamepad.hapticActuators && src.gamepad.hapticActuators[0]; if (hap && hap.pulse) hap.pulse(0.7, 900); } catch (e) {}
+  }
+}
+
 // ---------- Match state ----------
 let state = 'menu';       // menu | countdown | playing | over
 let mode = '1p';
@@ -844,7 +855,7 @@ function handleEvents() {
   for (const ev of game.events) {
     if (ev.type === 'crash') { burst(ev.id, trails[ev.id].head); if (state !== 'menu') boom(); }
     else if (state === 'menu') continue;
-    else if (ev.type === 'closing') { tone(880, 0.18, 'sawtooth', 0.05); setTimeout(() => tone(880, 0.18, 'sawtooth', 0.05), 260); }
+    else if (ev.type === 'shrink') rumble();
   }
   game.events.length = 0;
 }
@@ -880,15 +891,12 @@ function frame(ms, xrFrame) {
   for (let i = 0; i < 2; i++) { trails[i].update(game.players[i]); updateGuide(i, state !== 'menu', t); }
   updateBursts(dt);
 
-  // Closing walls
+  // The room itself shrinks: scale it to the live bounds
   const h = game.half;
-  wallEdges.position.set(0, AY / 2, 0); wallEdges.scale.set(h[0] * 2, h[1] * 2, h[2] * 2);
-  wallFill.position.copy(wallEdges.position); wallFill.scale.copy(wallEdges.scale);
-  wallEdges.visible = wallFill.visible = game.closing;
-  wallFill.material.opacity = 0.16 + 0.05 * Math.sin(t * 5);
-  roomMat.opacity += ((game.closing ? 0.12 : 0.7) - roomMat.opacity) * Math.min(1, dt * 2);
+  room.scale.set(h[0] / HALF_X, h[1] / (AY / 2), h[2] / HALF_Z);
+  room.position.y = AY / 2 - h[1];
 
-  const warn = game.closing && game.time < CLOSE_START + 4 && state === 'playing';
+  const warn = game.time > CLOSE_START - 3 && game.time < CLOSE_START + 1.5 && state === 'playing';
   if (state !== 'menu') {
     $('clock').textContent = fmt(game.time);
     $('warn').hidden = !warn;
