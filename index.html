@@ -118,6 +118,12 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
     <button id="d-normal" data-diff="normal" aria-pressed="true">Normal</button>
     <button id="d-hard" data-diff="hard" aria-pressed="false">Hard</button>
   </div>
+  <div class="label" id="comfortlabel">VR comfort</div>
+  <div class="seg" role="group" aria-labelledby="comfortlabel">
+    <button id="c-off" data-comfort="off" aria-pressed="false">Off</button>
+    <button id="c-medium" data-comfort="medium" aria-pressed="true">Medium</button>
+    <button id="c-high" data-comfort="high" aria-pressed="false">High</button>
+  </div>
   <div class="go">
     <button id="bvr" hidden>Play in VR<small>You against the computer, from the cockpit</small></button>
     <button id="b1">1 player vs computer<small>On this screen</small></button>
@@ -164,7 +170,11 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
   const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 
   class Game {
-    constructor(specs) {
+    constructor(specs, tune) {
+      const t = tune || {};
+      this.speed = SPEED * (t.speed || 1); this.boostMult = t.boost || BOOST_MULT;
+      this.yawRate = YAW_RATE * (t.turn || 1); this.pitchRate = PITCH_RATE * (t.turn || 1);
+      this.ease = t.ease || 10; // how quickly steering responds; lower is gentler
       this.half = [AX / 2, AY / 2, AZ / 2];
       this.target = this.half.slice(); this.nextShrink = CLOSE_START;
       this.time = 0; this.closing = false; this.over = false; this.winner = null;
@@ -239,11 +249,11 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
       const prof = PROFILES[p.difficulty] || PROFILES.normal;
       const opp = this.players.find(q => q !== p && q.alive);
       const N = prof.steps, h = 0.12, skip = p.n - SKIP;
-      const V = SPEED * (p.boostActive ? BOOST_MULT : 1);
+      const V = this.speed * (p.boostActive ? this.boostMult : 1);
       let tx = 0, ty = 0, tz = 0, ox = 0, oy = 0, oz = 0, oppDist = 0;
       if (opp) {
         tx = opp.pos[0] + opp.dir[0] * prof.lead; ty = opp.pos[1] + opp.dir[1] * prof.lead; tz = opp.pos[2] + opp.dir[2] * prof.lead;
-        ox = opp.pos[0] + opp.dir[0] * SPEED * 0.5; oy = opp.pos[1] + opp.dir[1] * SPEED * 0.5; oz = opp.pos[2] + opp.dir[2] * SPEED * 0.5;
+        ox = opp.pos[0] + opp.dir[0] * this.speed * 0.5; oy = opp.pos[1] + opp.dir[1] * this.speed * 0.5; oz = opp.pos[2] + opp.dir[2] * this.speed * 0.5;
         oppDist = Math.hypot(p.pos[0] - opp.pos[0], p.pos[1] - opp.pos[1], p.pos[2] - opp.pos[2]);
       }
       // Allow for a wall move that is under way or due within the lookahead
@@ -257,8 +267,8 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
         let survived = N, ex = x, ey = y, ez = z, near = 0;
         for (let s = 0; s < N; s++) {
           if (mode === 1 || s < 5) {
-            yaw -= yi * YAW_RATE * h;
-            pitch = clamp(pitch + pi * PITCH_RATE * h, -PITCH_MAX, PITCH_MAX);
+            yaw -= yi * this.yawRate * h;
+            pitch = clamp(pitch + pi * this.pitchRate * h, -PITCH_MAX, PITCH_MAX);
           } else {
             pitch *= 0.8; // rollouts level off after the manoeuvre
           }
@@ -320,14 +330,14 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
         const boosting = p.boosting && p.energy > 0;
         p.energy = boosting ? Math.max(0, p.energy - dt * 0.5) : Math.min(1, p.energy + dt * 0.12);
         p.boostActive = boosting;
-        const speed = SPEED * (boosting ? BOOST_MULT : 1);
-        const k = 1 - Math.exp(-dt * 10);
+        const speed = this.speed * (boosting ? this.boostMult : 1);
+        const k = 1 - Math.exp(-dt * this.ease);
         p.sx += (clamp(p.in.x, -1, 1) - p.sx) * k;
         p.sy += (clamp(p.in.y, -1, 1) - p.sy) * k;
         const n = Math.max(1, Math.ceil(speed * dt / 0.3)), h = dt / n;
         for (let s = 0; s < n; s++) {
-          p.yaw -= p.sx * YAW_RATE * h;
-          p.pitch = clamp(p.pitch + p.sy * PITCH_RATE * h, -PITCH_MAX, PITCH_MAX);
+          p.yaw -= p.sx * this.yawRate * h;
+          p.pitch = clamp(p.pitch + p.sy * this.pitchRate * h, -PITCH_MAX, PITCH_MAX);
           if (Math.abs(p.in.y) < 0.1 && Math.abs(p.pitch) < 0.14) p.pitch *= Math.max(0, 1 - 5 * h); // settle to level
           fwd(p.yaw, p.pitch, p.dir);
           p.pos[0] += p.dir[0] * speed * h; p.pos[1] += p.dir[1] * speed * h; p.pos[2] += p.dir[2] * speed * h;
@@ -509,7 +519,7 @@ Trail.prototype.update = function (p) {
   }
   this.craft.visible = p.alive || this.keep;
   this.craft.position.copy(this.head);
-  this.craft.rotation.set(p.pitch, p.yaw, this.keep ? 0 : -p.sx * 0.1); // same angles as the pilot's view, so the cockpit never moves around you
+  this.craft.rotation.set(this.keep && COMFORT[comfort].level ? 0 : p.pitch, p.yaw, this.keep ? 0 : -p.sx * 0.1); // same angles as the pilot's view, so the cockpit never moves around you
   const ud = this.craft.userData;
   ud.stick.rotation.set(-0.2 + p.sy * 0.25, 0, -p.sx * 0.3); ud.grip.rotation.copy(ud.stick.rotation);
   ud.grip.position.set(p.sx * 0.04, -0.49, -0.41 + p.sy * 0.035);
@@ -659,6 +669,37 @@ function rumble() {
   }
 }
 
+// ---------- VR comfort ----------
+// Medium: tunnel vignette while turning, gentler steering. High: also a level horizon and slower flight.
+const COMFORT = {
+  off:    { tune: null, vignette: false, level: false },
+  medium: { tune: { turn: 0.72, ease: 4 }, vignette: true, level: false },
+  high:   { tune: { turn: 0.65, ease: 3.5, speed: 0.8, boost: 1.35 }, vignette: true, level: true },
+};
+let comfort = 'medium';
+try { const c = localStorage.getItem('cutoff-comfort'); if (COMFORT[c]) comfort = c; } catch (e) {}
+const vignette = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), new THREE.ShaderMaterial({
+  transparent: true, depthTest: false, depthWrite: false,
+  uniforms: { amount: { value: 0 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: 'uniform float amount; varying vec2 vUv; void main(){ float d = length(vUv - 0.5) * 2.0; float inner = mix(0.62, 0.27, amount); gl_FragColor = vec4(0.0, 0.0, 0.0, amount * smoothstep(inner, inner + 0.2, d)); }',
+}));
+vignette.position.z = -1; vignette.renderOrder = 20; vignette.visible = false; vignette.frustumCulled = false;
+cams[0].add(vignette);
+let vigAmount = 0;
+function updateVignette(dt, vr) {
+  let target = 0;
+  if (vr && COMFORT[comfort].vignette && state === 'playing') {
+    const p = game.players[0];
+    // How fast the view is rotating, in radians per second
+    const rate = Math.abs(p.sx) * game.yawRate + (COMFORT[comfort].level ? 0 : Math.abs(p.sy) * game.pitchRate);
+    target = Math.min(1, rate / 0.9);
+  }
+  vigAmount += (target - vigAmount) * Math.min(1, dt * (target > vigAmount ? 8 : 3));
+  vignette.visible = vigAmount > 0.01;
+  vignette.material.uniforms.amount.value = vigAmount;
+}
+
 // ---------- Match state ----------
 let state = 'menu';       // menu | countdown | playing | over
 let mode = '1p';
@@ -670,8 +711,8 @@ const score = [0, 0];
 const held = { keys: {}, touchBoost: false };
 const names = () => mode === '1p' ? ['You', 'Computer'] : ['Player 1', 'Player 2'];
 
-function newGame(specs) {
-  game = new Game(specs);
+function newGame(specs, tune) {
+  game = new Game(specs, tune);
   trails.forEach(t => t.reset());
   for (let i = 0; i < 2; i++) { views[i].yaw = game.players[i].yaw; views[i].pitch = 0; }
 }
@@ -680,7 +721,7 @@ function attract() { newGame([{ ai: true, difficulty: 'normal' }, { ai: true, di
 function startMatch(m) {
   wake();
   mode = m;
-  newGame(m === '1p' ? [{ ai: false }, { ai: true, difficulty }] : [{ ai: false }, { ai: false }]);
+  newGame(m === '1p' ? [{ ai: false }, { ai: true, difficulty }] : [{ ai: false }, { ai: false }], trails[0].keep ? COMFORT[comfort].tune : null);
   state = 'countdown'; countdown = 3; lastBeep = 4; needEye = true;
   $('menu').hidden = true; $('hud').hidden = false;
   $('acts').hidden = true;
@@ -792,6 +833,12 @@ document.querySelectorAll('[data-diff]').forEach(b => b.addEventListener('click'
   difficulty = b.dataset.diff;
   document.querySelectorAll('[data-diff]').forEach(o => o.setAttribute('aria-pressed', String(o === b)));
 }));
+function showComfort() { document.querySelectorAll('[data-comfort]').forEach(o => o.setAttribute('aria-pressed', String(o.dataset.comfort === comfort))); }
+document.querySelectorAll('[data-comfort]').forEach(b => b.addEventListener('click', () => {
+  comfort = b.dataset.comfort; showComfort();
+  try { localStorage.setItem('cutoff-comfort', comfort); } catch (e) {}
+}));
+showComfort();
 $('b1').addEventListener('click', () => startMatch('1p'));
 $('b2').addEventListener('click', () => startMatch('2p'));
 $('again').addEventListener('click', () => { overAt = -9; rematch(); });
@@ -925,10 +972,12 @@ function frame(ms, xrFrame) {
       }
     }
     chase(0, dt, true);
+    updateVignette(dt, true);
     renderer.render(scene, cams[0]);
     return;
   }
 
+  updateVignette(dt, false);
   const w = innerWidth, hh = innerHeight;
   if (state === 'menu') {
     const a = t * 0.1;
