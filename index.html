@@ -72,7 +72,6 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
   background: var(--panel); padding: 4px 12px; border-radius: 4px; }
 #warn { position: absolute; left: 50%; top: 52px; transform: translateX(-50%); color: var(--danger); font-weight: 700; letter-spacing: .2em; font-size: 14px; white-space: nowrap; animation: blink .5s steps(2) infinite; }
 #warn[hidden] { display: none; }
-#hud.split-h #clock { top: auto; bottom: 12px; } #hud.split-h #warn { top: auto; bottom: 52px; }
 @keyframes blink { 50% { opacity: .25; } }
 @media (prefers-reduced-motion: reduce) { #warn { animation: none; } }
 #big { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); text-align: center; pointer-events: auto; width: min(92%, 460px); }
@@ -462,7 +461,7 @@ Trail.prototype.update = function (p) {
     vC.set((s.a[0] + bx) / 2 + 0.5 - HALF_X, (s.a[1] + by) / 2 + 0.5, (s.a[2] + bz) / 2 + 0.5 - HALF_Z);
     const dx = Math.abs(bx - s.a[0]), dy = Math.abs(by - s.a[1]), dz = Math.abs(bz - s.a[2]);
     m4.compose(vC, q0, vS.set(dx + 0.26, dy + 0.26, dz + 0.26)); this.core.setMatrixAt(i, m4);
-    m4.compose(vC, q0, vS.set(dx + 0.72, dy + 0.72, dz + 0.72)); this.glow.setMatrixAt(i, m4);
+    m4.compose(vC, q0, vS.set(dx + 0.56, dy + 0.56, dz + 0.56)); this.glow.setMatrixAt(i, m4);
   }
   this.done = n - 1;
   this.core.count = this.glow.count = n;
@@ -473,6 +472,36 @@ Trail.prototype.update = function (p) {
   this.craft.children[1].scale.setScalar(p.boostActive ? 1.5 : 1);
 };
 const trails = [new Trail(COLORS[0]), new Trail(COLORS[1])];
+
+// Flight path guide: a thin beam from the nose to whatever the drone will hit next
+const FWD = new THREE.Vector3(0, 0, 1);
+const guides = COLORS.map(color => {
+  const beam = new THREE.Mesh(unitBox, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4, depthWrite: false, fog: false }));
+  const mark = new THREE.Mesh(new THREE.RingGeometry(0.26, 0.42, 28), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, depthWrite: false, fog: false }));
+  beam.visible = mark.visible = false;
+  scene.add(beam, mark);
+  return { beam, mark, color: new THREE.Color(color), red: new THREE.Color(0xff5a4f) };
+});
+function updateGuide(i, show, time) {
+  const g = guides[i], p = game.players[i];
+  g.beam.visible = g.mark.visible = show && !p.ai && p.alive;
+  if (!g.beam.visible) return;
+  const d = p.dir;
+  let n = 0;
+  while (n < 40 && game.free(p.pos[0] + d[0] * (n + 1), p.pos[1] + d[1] * (n + 1), p.pos[2] + d[2] * (n + 1))) n++;
+  const head = trails[i].head;
+  const ex = p.pos[0] + 0.5 - HALF_X + d[0] * (n + 0.5), ey = p.pos[1] + 0.5 + d[1] * (n + 0.5), ez = p.pos[2] + 0.5 - HALF_Z + d[2] * (n + 0.5);
+  const len = Math.abs(ex - head.x) + Math.abs(ey - head.y) + Math.abs(ez - head.z);
+  g.beam.position.set((ex + head.x) / 2, (ey + head.y) / 2, (ez + head.z) / 2);
+  g.beam.scale.set(Math.abs(d[0]) * len + 0.05, Math.abs(d[1]) * len + 0.05, Math.abs(d[2]) * len + 0.05);
+  g.mark.position.set(ex - d[0] * 0.04, ey - d[1] * 0.04, ez - d[2] * 0.04);
+  g.mark.quaternion.setFromUnitVectors(FWD, vS.set(d[0], d[1], d[2]));
+  const near = n < 5;
+  g.beam.material.color.copy(near ? g.red : g.color);
+  g.mark.material.color.copy(near ? g.red : g.color);
+  g.mark.material.opacity = near ? 0.6 + 0.4 * Math.sin(time * 18) : 0.85;
+  g.mark.scale.setScalar(near ? 1.6 : 1);
+}
 
 // Crash bursts
 const NP = 140;
@@ -580,7 +609,7 @@ function startMatch(m) {
   wake();
   mode = m;
   newGame(m === '1p' ? [{ ai: false }, { ai: true, difficulty }] : [{ ai: false }, { ai: false }]);
-  state = 'countdown'; countdown = 3; lastBeep = 4;
+  state = 'countdown'; countdown = 3; lastBeep = 4; needEye = true;
   $('menu').hidden = true; $('hud').hidden = false;
   $('acts').hidden = true;
   const n = names(); $('who0').textContent = n[0]; $('who1').textContent = n[1];
@@ -746,6 +775,7 @@ addEventListener('resize', layout);
 
 // ---------- Cameras ----------
 const look = new THREE.Vector3();
+let eyeY = 1.2, needEye = true;
 function chase(i, dt, vr) {
   const p = game.players[i], v = views[i], head = trails[i].head;
   const target = Math.atan2(-p.heading[0], -p.heading[2]);
@@ -757,11 +787,11 @@ function chase(i, dt, vr) {
   v.y += (head.y - v.y) * (vr ? 1 : 1 - Math.exp(-dt * 6));
   const s = Math.sin(v.yaw), c = Math.cos(v.yaw);
   if (vr) {
-    rig.position.set(head.x + s * 3.4, head.y - 1.0, head.z + c * 3.4);
+    rig.position.set(head.x + s * 1.9, head.y + 0.8 - eyeY, head.z + c * 1.9);
     rig.rotation.set(0, v.yaw, 0);
   } else {
-    v.cam.position.set(head.x + s * 6, v.y + 2.3, head.z + c * 6);
-    v.cam.lookAt(look.set(head.x - s * 4, head.y + 0.3, head.z - c * 4));
+    v.cam.position.set(head.x + s * 3.2, v.y + 1.7, head.z + c * 3.2);
+    v.cam.lookAt(look.set(head.x - s * 7, head.y - 0.2, head.z - c * 7));
   }
 }
 
@@ -778,7 +808,7 @@ function handleEvents() {
   game.events.length = 0;
 }
 
-function frame(ms) {
+function frame(ms, xrFrame) {
   const t = ms / 1000;
   const dt = Math.min(0.05, Math.max(0, t - prevT));
   prevT = t; clockNow = t;
@@ -808,7 +838,7 @@ function frame(ms) {
     if (game.over) { orbit += dt; if (orbit > 2.5) { orbit = 0; attract(); } }
   }
 
-  for (let i = 0; i < 2; i++) trails[i].update(game.players[i]);
+  for (let i = 0; i < 2; i++) { trails[i].update(game.players[i]); updateGuide(i, state !== 'menu', t); }
   updateBursts(dt);
 
   // Walls ease toward the live bounds; the next position flashes red during a warning.
@@ -831,6 +861,11 @@ function frame(ms) {
   }
 
   if (vr) {
+    // Measure the player's eye height once per round so seated and standing players get the same view.
+    if (needEye && xrFrame) {
+      const pose = xrFrame.getViewerPose(renderer.xr.getReferenceSpace());
+      if (pose) { eyeY = Math.max(0.3, Math.min(2.2, pose.transform.position.y)); needEye = false; }
+    }
     chase(0, dt, true);
     vrPanel.visible = true;
     const msg = state === 'countdown' ? (countdown > 0 ? String(Math.ceil(countdown)) : 'GO')
