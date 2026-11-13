@@ -28,17 +28,29 @@ button:focus-visible, summary:focus-visible { outline: 2px solid var(--ink); out
 
 #menu {
   position: fixed; left: 0; top: 0; bottom: 0; width: min(380px, 100%);
-  padding: 28px 24px; display: flex; flex-direction: column; gap: 14px; justify-content: flex-end;
+  padding: 28px 24px; display: flex; flex-direction: column; gap: 14px;
   background: linear-gradient(90deg, rgba(5,6,15,.94) 0%, rgba(5,6,15,.78) 70%, rgba(5,6,15,0) 100%);
   overflow-y: auto;
 }
+#menu > :first-child { margin-top: auto; } /* sits at the bottom when there is room, scrolls from the top when there is not */
 #menu[hidden] { display: none; }
+.opts { display: grid; grid-template-columns: 1fr; gap: 12px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.opts .label { margin-bottom: 6px; color: var(--ink); }
+@media (max-height: 700px) {
+  #menu { width: min(560px, 100%); padding: 16px 20px; gap: 10px; }
+  h1 { font-size: 30px; }
+  .tag { display: none; }
+  .opts { grid-template-columns: 1fr 1fr; }
+  .go button { padding: 10px 14px; font-size: 16px; }
+  .go { display: grid; grid-template-columns: 1fr 1fr; }
+  .go #bvr { grid-column: 1 / -1; }
+}
 h1 { margin: 0; font-size: 44px; line-height: 1; letter-spacing: .14em; font-weight: 700; }
 h1 span:first-child { color: var(--p1); } h1 span:last-child { color: var(--p2); }
 .tag { margin: 0 0 6px; color: var(--dim); font-size: 16px; max-width: 30ch; }
 .label { font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
 .seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-.seg button { background: transparent; border: 0; padding: 10px 0; font-size: 15px; color: var(--dim); }
+.seg button { background: transparent; border: 0; padding: 12px 0; font-size: 16px; color: var(--ink); }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--void); font-weight: 600; }
 .go { display: flex; flex-direction: column; gap: 10px; }
@@ -112,17 +124,23 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
 <div id="menu">
   <h1><span>CUT</span><span>OFF</span></h1>
   <p class="tag">Two drones fly free through one huge room, each trailing a wall of light. Touch a trail and you lose. The room keeps closing in.</p>
-  <div class="label" id="difflabel">Computer skill</div>
-  <div class="seg" role="group" aria-labelledby="difflabel">
-    <button id="d-easy" data-diff="easy" aria-pressed="false">Easy</button>
-    <button id="d-normal" data-diff="normal" aria-pressed="true">Normal</button>
-    <button id="d-hard" data-diff="hard" aria-pressed="false">Hard</button>
-  </div>
-  <div class="label" id="comfortlabel">VR comfort</div>
-  <div class="seg" role="group" aria-labelledby="comfortlabel">
-    <button id="c-off" data-comfort="off" aria-pressed="false">Off</button>
-    <button id="c-medium" data-comfort="medium" aria-pressed="true">Medium</button>
-    <button id="c-high" data-comfort="high" aria-pressed="false">High</button>
+  <div class="opts">
+    <div>
+      <div class="label" id="difflabel">Computer skill</div>
+      <div class="seg" role="group" aria-labelledby="difflabel">
+        <button id="d-easy" data-diff="easy" aria-pressed="false">Easy</button>
+        <button id="d-normal" data-diff="normal" aria-pressed="true">Normal</button>
+        <button id="d-hard" data-diff="hard" aria-pressed="false">Hard</button>
+      </div>
+    </div>
+    <div>
+      <div class="label" id="comfortlabel">VR comfort</div>
+      <div class="seg" role="group" aria-labelledby="comfortlabel">
+        <button id="c-off" data-comfort="off" aria-pressed="false">Off</button>
+        <button id="c-medium" data-comfort="medium" aria-pressed="true">Medium</button>
+        <button id="c-high" data-comfort="high" aria-pressed="false">High</button>
+      </div>
+    </div>
   </div>
   <div class="go">
     <button id="bvr" hidden>Play in VR<small>You against the computer, from the cockpit</small></button>
