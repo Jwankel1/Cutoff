@@ -456,7 +456,7 @@ const tube = new THREE.CylinderGeometry(0.5, 0.5, 1, 6, 1, true);
 tube.rotateX(Math.PI / 2); // length runs along Z
 // The drone is an armoured flying-car cabin. The pilot's eyes sit at its origin, nose along -Z.
 // One wide windshield with the pillars pushed out to the sides; the console stays about 27 degrees below eye level.
-scene.add(new THREE.HemisphereLight(0xa9bcff, 0x0b0d1a, 0.5));
+scene.add(new THREE.HemisphereLight(0xd4d9e6, 0x08090c, 0.5));
 (function () { const sun = new THREE.DirectionalLight(0xffffff, 0.4); sun.position.set(0.4, 1, 0.3); scene.add(sun); })();
 // Metal textures are painted in code: brushed streaks, plate seams with rivets, scratches and wear.
 function metalTexture(base, kind) {
@@ -516,11 +516,11 @@ function metalTexture(base, kind) {
 }
 function metalMat(base, kind, shininess) {
   const [map, bumpMap] = metalTexture(base, kind);
-  return new THREE.MeshPhongMaterial({ map, bumpMap, bumpScale: 0.008, specular: 0x4a5573, shininess });
+  return new THREE.MeshPhongMaterial({ map, bumpMap, bumpScale: 0.008, specular: 0x5a5d66, shininess });
 }
-const hullMat = metalMat('#343a55', 'plate', 42);
-const trimMat = metalMat('#4d5578', 'brushed', 70);
-const darkMat = metalMat('#161a2c', 'tread', 16);
+const hullMat = metalMat('#17181c', 'plate', 48);
+const trimMat = metalMat('#26282e', 'brushed', 80);
+const darkMat = metalMat('#0c0d10', 'tread', 18);
 // Box geometry whose texture repeats every TILE metres, whatever the box's size
 const TILE = 0.6, plateGeos = {};
 function plateGeo(w, h, d) {
