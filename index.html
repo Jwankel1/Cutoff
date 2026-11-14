@@ -497,13 +497,6 @@ function metalTexture(base, kind) {
     };
     for (const x of [14, 78, 142, 206]) { rivet(x, 12); rivet(x + 36, 116); }
     for (const x of [14, 100, 142, 228]) { rivet(x, 140); rivet(x, 244); }
-  } else if (kind === 'tread') {
-    // Diamond tread for the floor and dark panels
-    for (let y = 0; y < S; y += 32) for (let x = 0; x < S; x += 32) for (const [ox, oy, rot] of [[8, 8, 0.6], [24, 24, -0.6]]) {
-      for (const [ctx, fill] of [[c, 'rgba(255,255,255,0.06)'], [b, '#c0c0c0']]) {
-        ctx.save(); ctx.translate(x + ox, y + oy); ctx.rotate(rot); ctx.fillStyle = fill; ctx.fillRect(-7, -1.6, 14, 3.2); ctx.restore();
-      }
-    }
   }
   // A few long scratches
   for (let i = 0; i < 10; i++) {
@@ -520,7 +513,7 @@ function metalMat(base, kind, shininess) {
 }
 const hullMat = metalMat('#17181c', 'plate', 48);
 const trimMat = metalMat('#26282e', 'brushed', 80);
-const darkMat = metalMat('#0c0d10', 'tread', 18);
+const darkMat = metalMat('#0c0d10', 'matte', 18);
 // Box geometry whose texture repeats every TILE metres, whatever the box's size
 const TILE = 0.6, plateGeos = {};
 function plateGeo(w, h, d) {
