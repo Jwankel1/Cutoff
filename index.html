@@ -40,7 +40,7 @@ button:focus-visible, summary:focus-visible { outline: 2px solid var(--ink); out
   #menu { width: min(560px, 100%); padding: 16px 20px; gap: 10px; }
   h1 { font-size: 30px; }
   .tag { display: none; }
-  .opts { grid-template-columns: 1fr 1fr; }
+  .opts { grid-template-columns: repeat(3, 1fr); }
   .go button { padding: 10px 14px; font-size: 16px; }
   .go { display: grid; grid-template-columns: 1fr 1fr; }
   .go #bvr { grid-column: 1 / -1; }
@@ -49,6 +49,7 @@ h1 { margin: 0; font-size: 44px; line-height: 1; letter-spacing: .14em; font-wei
 h1 span:first-child { color: var(--p1); } h1 span:last-child { color: var(--p2); }
 .tag { margin: 0 0 6px; color: var(--dim); font-size: 16px; max-width: 30ch; }
 .label { font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+.seg.two { grid-template-columns: repeat(2, 1fr); }
 .seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .seg button { background: transparent; border: 0; padding: 12px 0; font-size: 16px; color: var(--ink); }
 .seg button + button { border-left: 1px solid var(--line); }
@@ -145,6 +146,13 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
         <button id="c-off" data-comfort="off" aria-pressed="false">Off</button>
         <button id="c-medium" data-comfort="medium" aria-pressed="true">Medium</button>
         <button id="c-high" data-comfort="high" aria-pressed="false">High</button>
+      </div>
+    </div>
+    <div>
+      <div class="label" id="musiclabel">Music</div>
+      <div class="seg two" role="group" aria-labelledby="musiclabel">
+        <button id="m-on" data-music="1" aria-pressed="true">On</button>
+        <button id="m-off" data-music="0" aria-pressed="false">Off</button>
       </div>
     </div>
   </div>
@@ -1091,6 +1099,146 @@ function updateVignette(dt, vr) {
   vignette.material.uniforms.amount.value = vigAmount;
 }
 
+// ---------- Soundtrack ----------
+// A generative trance bed built in code: layers switch in, the filter opens and the tempo
+// lifts as the room closes, with a riser into every wall move.
+let musicOn = true;
+try { const v = localStorage.getItem('cutoff-music'); if (v !== null) musicOn = v === '1'; } catch (e) {}
+let mus = null, noiseBuf = null, forceI = null; // forceI is a test hook for auditioning the layers
+const MIDI = m => 440 * Math.pow(2, (m - 69) / 12);
+const CHORDS = [                                   // Am - F - C - G, two bars each
+  { root: 33, notes: [57, 60, 64] },
+  { root: 29, notes: [57, 60, 65] },
+  { root: 36, notes: [55, 60, 64] },
+  { root: 31, notes: [55, 59, 62] },
+];
+const ARP = [0, null, 7, 12, null, 7, 15, null, 12, null, 7, 3, null, 7, 12, null];
+function noise() {
+  if (noiseBuf) return noiseBuf;
+  const n = ac.sampleRate * 2, b = ac.createBuffer(1, n, ac.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  return (noiseBuf = b);
+}
+function musicInit() {
+  if (mus || !ac) return;
+  const out = ac.createGain(); out.gain.value = 0.0001; out.connect(ac.destination);
+  const filt = ac.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 600; filt.Q.value = 0.9; filt.connect(out);
+  const dly = ac.createDelay(1); dly.delayTime.value = 0.21;
+  const fb = ac.createGain(); fb.gain.value = 0.32;
+  dly.connect(fb); fb.connect(dly); dly.connect(filt);
+  mus = { out, filt, dly, step: 0, next: 0, level: 0, riserFor: -1 };
+}
+function kick(when, amt) {
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.frequency.setValueAtTime(155, when); o.frequency.exponentialRampToValueAtTime(44, when + 0.1);
+  g.gain.setValueAtTime(amt, when); g.gain.exponentialRampToValueAtTime(0.0001, when + 0.3);
+  o.connect(g); g.connect(mus.filt); o.start(when); o.stop(when + 0.32);
+}
+function hat(when, amt, open) {
+  const s = ac.createBufferSource(); s.buffer = noise();
+  const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 7500;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(amt, when); g.gain.exponentialRampToValueAtTime(0.0001, when + (open ? 0.19 : 0.045));
+  s.connect(hp); hp.connect(g); g.connect(mus.filt);
+  s.start(when, Math.random()); s.stop(when + 0.25);
+}
+function clap(when, amt) {
+  const s = ac.createBufferSource(); s.buffer = noise();
+  const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1700; bp.Q.value = 1.1;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, when); g.gain.linearRampToValueAtTime(amt, when + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, when + 0.17);
+  s.connect(bp); bp.connect(g); g.connect(mus.filt); g.connect(mus.dly);
+  s.start(when, Math.random()); s.stop(when + 0.2);
+}
+function bass(when, midi, dur, amt) {
+  const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = MIDI(midi);
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(1000, when); lp.frequency.exponentialRampToValueAtTime(240, when + dur);
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, when); g.gain.linearRampToValueAtTime(amt, when + 0.012);
+  g.gain.setValueAtTime(amt, when + dur * 0.55); g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+  o.connect(lp); lp.connect(g); g.connect(mus.filt);
+  o.start(when); o.stop(when + dur + 0.02);
+}
+function pad(when, notes, dur, amt) {
+  for (const n of notes) for (const det of [-7, 7]) {
+    const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = MIDI(n - 12); o.detune.value = det;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.linearRampToValueAtTime(amt, when + dur * 0.4);
+    g.gain.linearRampToValueAtTime(0.0001, when + dur);
+    o.connect(g); g.connect(mus.filt);
+    o.start(when); o.stop(when + dur + 0.05);
+  }
+}
+function pluck(when, midi, amt) {
+  const o = ac.createOscillator(); o.type = 'square'; o.frequency.value = MIDI(midi);
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, when); g.gain.linearRampToValueAtTime(amt, when + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, when + 0.22);
+  o.connect(g); g.connect(mus.filt); g.connect(mus.dly);
+  o.start(when); o.stop(when + 0.25);
+}
+function lead(when, midi, dur, amt) {
+  for (const det of [-11, 0, 11]) {
+    const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = MIDI(midi); o.detune.value = det;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, when); g.gain.linearRampToValueAtTime(amt, when + 0.06);
+    g.gain.setValueAtTime(amt, when + dur * 0.7); g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    o.connect(g); g.connect(mus.filt); g.connect(mus.dly);
+    o.start(when); o.stop(when + dur + 0.05);
+  }
+}
+function riser(dur) {
+  if (!mus) return;
+  const t = ac.currentTime, s = ac.createBufferSource(); s.buffer = noise(); s.loop = true;
+  const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 3.5;
+  bp.frequency.setValueAtTime(400, t); bp.frequency.exponentialRampToValueAtTime(7000, t + dur);
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.08, t + dur * 0.92);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.2);
+  s.connect(bp); bp.connect(g); g.connect(mus.out);   // bypasses the filter so it cuts through
+  s.start(t); s.stop(t + dur + 0.25);
+}
+function crashCymbal() {
+  if (!mus) return;
+  const t = ac.currentTime, s = ac.createBufferSource(); s.buffer = noise();
+  const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3800;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.11, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.7);
+  s.connect(hp); hp.connect(g); g.connect(mus.out);
+  s.start(t, Math.random()); s.stop(t + 1.8);
+}
+function musicStep(step, when, I, sd) {
+  const s16 = step % 16, bar = (step / 16) | 0, ch = CHORDS[((step / 32) | 0) % 4];
+  if (step % 32 === 0) pad(when, ch.notes, sd * 32, 0.03 + I * 0.022);
+  if (I > 0.12 && s16 % 4 === 0) kick(when, 0.45 + I * 0.3);
+  if (I > 0.2 && s16 % 4 === 2) bass(when, ch.root, sd * 1.7, 0.12 + I * 0.07);
+  if (I > 0.55 && s16 % 8 === 7) bass(when, ch.root + 12, sd * 1.2, 0.09);
+  if (I > 0.3 && s16 % 2 === 1) hat(when, 0.05 + I * 0.03, I > 0.6 && s16 % 8 === 7);
+  if (I > 0.45 && (s16 === 4 || s16 === 12)) clap(when, 0.1 + I * 0.04);
+  if (I > 0.38) { const a = ARP[s16]; if (a !== null) pluck(when, ch.root + 24 + a, 0.04 + I * 0.03); }
+  if (I > 0.68 && s16 === 0 && bar % 2 === 0) lead(when, ch.notes[2], sd * 15, 0.04);
+}
+function musicTick(dt, target) {
+  if (!ac) return;
+  if (!musicOn) { if (mus) mus.out.gain.setTargetAtTime(0.0001, ac.currentTime, 0.25); return; }
+  musicInit();
+  if (!mus) return;
+  const t = ac.currentTime;
+  if (forceI !== null) target = forceI;
+  mus.level += (target - mus.level) * Math.min(1, dt * 0.8);
+  const I = mus.level;
+  mus.out.gain.setTargetAtTime(0.05 + I * 0.06, t, 0.3);
+  mus.filt.frequency.setTargetAtTime(600 + Math.pow(I, 1.3) * 9000, t, 0.4);
+  const sd = 60 / (124 + I * 16) / 4;               // one sixteenth note
+  mus.dly.delayTime.setTargetAtTime(sd * 3, t, 0.5);
+  const ahead = Math.max(0.3, dt * 3);            // keep the queue full even on a slow frame
+  if (mus.next < t) mus.next = t + 0.06;
+  while (mus.next < t + ahead) { musicStep(mus.step++, mus.next, I, sd); mus.next += sd; }
+}
+
 // ---------- Match state ----------
 let state = 'menu';       // menu | countdown | playing | over
 let mode = '1p';
@@ -1227,6 +1375,12 @@ document.querySelectorAll('[data-diff]').forEach(b => b.addEventListener('click'
   difficulty = b.dataset.diff;
   document.querySelectorAll('[data-diff]').forEach(o => o.setAttribute('aria-pressed', String(o === b)));
 }));
+function showMusic() { document.querySelectorAll('[data-music]').forEach(o => o.setAttribute('aria-pressed', String((o.dataset.music === '1') === musicOn))); }
+document.querySelectorAll('[data-music]').forEach(b => b.addEventListener('click', () => {
+  musicOn = b.dataset.music === '1'; showMusic(); wake();
+  try { localStorage.setItem('cutoff-music', musicOn ? '1' : '0'); } catch (e) {}
+}));
+showMusic();
 function showComfort() { document.querySelectorAll('[data-comfort]').forEach(o => o.setAttribute('aria-pressed', String(o.dataset.comfort === comfort))); }
 document.querySelectorAll('[data-comfort]').forEach(b => b.addEventListener('click', () => {
   comfort = b.dataset.comfort; showComfort();
@@ -1297,7 +1451,7 @@ function handleEvents() {
   for (const ev of game.events) {
     if (ev.type === 'crash') { burst(ev.id, trails[ev.id].head); if (state !== 'menu') boom(); }
     else if (state === 'menu') continue;
-    else if (ev.type === 'shrink') rumble();
+    else if (ev.type === 'shrink') { rumble(); if (musicOn) crashCymbal(); }
   }
   game.events.length = 0;
 }
@@ -1333,6 +1487,14 @@ function frame(ms, xrFrame) {
   for (let i = 0; i < 2; i++) { trails[i].update(game.players[i]); updateHeadlight(i); updateGuide(i, state !== 'menu', t); }
   updateBursts(dt);
   proximityWarning(dt, t);
+
+  // Music follows how much of the room is gone
+  const closed = Math.min(1, (AX / 2 - game.half[0]) / 16);
+  musicTick(dt, state === 'menu' ? 0.12 : state === 'countdown' ? 0.22 : state === 'over' ? 0.1 : 0.3 + closed * 0.7);
+  if (state === 'playing' && mus && musicOn && game.target[0] > 2.5 && game.nextShrink - game.time < 1.6 && mus.riserFor !== game.nextShrink) {
+    mus.riserFor = game.nextShrink;
+    riser(Math.max(0.35, game.nextShrink - game.time));
+  }
 
   // The room itself shrinks: scale it to the live bounds
   const h = game.half;
@@ -1407,7 +1569,9 @@ function frame(ms, xrFrame) {
 attract();
 layout();
 renderer.setAnimationLoop(frame);
-window.__skyloom = { get state() { return state; }, get game() { return game; }, look: lookOff, get lamp() { return trails[0].craft.userData.lamp; }, get screen() { return vrCanvas; } };
+window.__skyloom = { get state() { return state; }, get game() { return game; }, look: lookOff, get lamp() { return trails[0].craft.userData.lamp; }, get screen() { return vrCanvas; },
+  set force(v) { forceI = v; },
+  get audioTime() { return ac ? ac.currentTime : 0; }, get music() { return mus ? { level: mus.level, cutoff: mus.filt.frequency.value, gain: mus.out.gain.value } : null; } };
 })();
 
 </script>

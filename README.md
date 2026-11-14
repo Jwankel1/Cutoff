@@ -7,6 +7,10 @@ Two drones fly freely through one large room (80 x 36 x 80 m), each leaving a so
 - **1 player** against the computer (Easy, Normal, Hard), in VR or on screen
 - **2 players** in split screen, on one keyboard or two gamepads
 
+The soundtrack is generated in code: a trance bed whose layers, filter and tempo
+build as the room closes, with a riser into every wall move. It can be turned off
+on the menu.
+
 ## Play
 
 The whole game is `index.html`. It loads three.js from a CDN and needs no build step.
