@@ -580,6 +580,16 @@ function noseGeometry() {
   noseGeo.computeVertexNormals();
   return noseGeo;
 }
+const LAMP_OFF = 0x3a1210, LAMP_ON = 0xff4034;
+const lampTex = (function () {
+  const cv = document.createElement('canvas'); cv.width = 128; cv.height = 80;
+  const c = cv.getContext('2d');
+  c.fillStyle = '#ffffff'; c.fillRect(0, 0, 128, 80);
+  c.fillStyle = '#000000'; c.globalAlpha = 0.22; c.fillRect(0, 0, 128, 7); c.fillRect(0, 73, 128, 7); c.globalAlpha = 1;
+  c.fillStyle = '#1a0603'; c.font = '700 30px "Chakra Petch", sans-serif'; c.textAlign = 'center';
+  c.fillText('PROX', 64, 46);
+  return new THREE.CanvasTexture(cv);
+})();
 function buildCockpit(color, screenTex) {
   const g = new THREE.Group();
   const lit = new THREE.MeshBasicMaterial({ color });
@@ -661,6 +671,13 @@ function buildCockpit(color, screenTex) {
   ypart(trimMat, 0.36, 0.035, 0.035, 0, 0, 0.02);
   for (const x of [-1, 1]) { ypart(darkMat, 0.04, 0.11, 0.04, x * 0.18, 0.04, 0.02); ypart(lit, 0.042, 0.012, 0.042, x * 0.18, 0.1, 0.02); }
   g.add(yoke); g.userData.yoke = yoke;
+  // Proximity lamp: a single labelled button outboard of the right-hand screen
+  const lampHead = new THREE.Group(); lampHead.rotation.order = 'YXZ';
+  lampHead.position.set(0.76, -0.417, -0.62); lampHead.rotation.set(-1.25, -0.15, 0);
+  lampHead.add(solid(trimMat, 0.19, 0.13, 0.05));
+  const lampFace = new THREE.Mesh(new THREE.PlaneGeometry(0.125, 0.08), new THREE.MeshBasicMaterial({ map: lampTex, color: LAMP_OFF, fog: false }));
+  lampFace.position.z = 0.027; lampHead.add(lampFace);
+  g.add(lampHead); g.userData.lamp = lampFace;
   const lamp = new THREE.SpotLight(0xfff0d6, 2.2, 34, 0.36, 0.6, 1.1);
   lamp.position.set(0, -0.55, -3.05); lamp.target.position.set(0, -0.55, -12); g.add(lamp, lamp.target);
   for (const x of [-1, 1]) box(new THREE.MeshBasicMaterial({ color: 0xfff6e6 }), 0.1, 0.04, 0.03, x * 0.3, -0.61, -2.98, 0, x * -0.5);
@@ -728,11 +745,9 @@ const vrCtx = vrCanvas.getContext('2d');
 const vrTex = new THREE.CanvasTexture(vrCanvas);
 const trails = [new Trail(COLORS[0], vrTex), new Trail(COLORS[1], null)];
 const SCR = { ink: '#9fefff', dim: '#3f8296', bg: '#06141d', grid: '#0e2c3a' };
-let screenAt = -1, screenMsg = '', screenFlash = false;
+let screenAt = -1, screenMsg = '';
 function drawScreens(now, msg, sub, clock, scoreText, warn) {
-  const q = prox[0], flash = q.on && q.blink;
-  if (msg === screenMsg && flash === screenFlash && now - screenAt < 0.1) return;
-  screenFlash = flash;
+  if (msg === screenMsg && now - screenAt < 0.065) return;
   screenAt = now; screenMsg = msg;
   const c = vrCtx, CW = 256, H = 176, p = game.players[0], o = game.players[1];
   c.fillStyle = SCR.bg; c.fillRect(0, 0, 768, H);
@@ -742,20 +757,69 @@ function drawScreens(now, msg, sub, clock, scoreText, warn) {
   c.stroke();
   c.textAlign = 'center';
 
-  // Left: top-down radar, north (the blue wall) at the top
-  const sc = 76 / (AX / 2), cx = 128, cy = 88, hx = game.half[0] * sc, hz = game.half[2] * sc;
-  const side = (col, x1, y1, x2, y2) => { c.strokeStyle = col; c.lineWidth = 3; c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); };
-  side('#2f7bff', cx - hx, cy - hz, cx + hx, cy - hz); side('#d9822b', cx - hx, cy + hz, cx + hx, cy + hz);
-  side('#18b3a4', cx - hx, cy - hz, cx - hx, cy + hz); side('#8a55f0', cx + hx, cy - hz, cx + hx, cy + hz);
-  for (const [q, col] of [[o, '#ff4fd8'], [p, '#b8ff3c']]) {
-    c.strokeStyle = col; c.lineWidth = 1.5; c.beginPath();
-    for (let k = 0; k < q.n; k += 3) { const X = cx + q.pts[k * 3] * sc, Y = cy + q.pts[k * 3 + 2] * sc; if (k) c.lineTo(X, Y); else c.moveTo(X, Y); }
-    c.lineTo(cx + q.pos[0] * sc, cy + q.pos[2] * sc); c.stroke();
-    if (q.alive) {
-      c.save(); c.translate(cx + q.pos[0] * sc, cy + q.pos[2] * sc); c.rotate(-q.yaw);
-      c.fillStyle = col; c.beginPath(); c.moveTo(0, -7); c.lineTo(5, 5); c.lineTo(-5, 5); c.closePath(); c.fill(); c.restore();
-    }
+  // Left: nose-up sweep radar. You sit at the centre; the sweep lights the other drone as it passes.
+  const cx = 128, cy = 88, R = 76, RANGE = 46, sc = R / RANGE;
+  const f0 = Math.hypot(p.dir[0], p.dir[2]) || 1, fx = p.dir[0] / f0, fz = p.dir[2] / f0;
+  const toScreen = (wx, wz) => {
+    const dx = wx - p.pos[0], dz = wz - p.pos[2];
+    return [cx + (dx * -fz + dz * fx) * sc, cy - (dx * fx + dz * fz) * sc];
+  };
+  c.save();
+  c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.clip();
+  // Room walls, each in its own colour, turning as you turn
+  const hx = game.half[0], hz = game.half[2];
+  const corner = [[-hx, -hz], [hx, -hz], [hx, hz], [-hx, hz]].map(q => toScreen(q[0], q[1]));
+  ['#2f7bff', '#8a55f0', '#d9822b', '#18b3a4'].forEach((col, k) => {
+    const a = corner[k], b2 = corner[(k + 1) % 4];
+    c.strokeStyle = col; c.lineWidth = 3; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b2[0], b2[1]); c.stroke();
+  });
+  // Both trails, faint
+  for (const [q, col] of [[o, 'rgba(255,79,216,.5)'], [p, 'rgba(184,255,60,.5)']]) {
+    c.strokeStyle = col; c.lineWidth = 1.2; c.beginPath();
+    const st = Math.max(4, Math.ceil(q.n / 140));   // a fixed budget of segments, however long the trail is
+    for (let k = 0; k < q.n; k += st) { const pt = toScreen(q.pts[k * 3], q.pts[k * 3 + 2]); if (k) c.lineTo(pt[0], pt[1]); else c.moveTo(pt[0], pt[1]); }
+    const hd = toScreen(q.pos[0], q.pos[2]); c.lineTo(hd[0], hd[1]); c.stroke();
   }
+  // Range rings
+  c.strokeStyle = SCR.grid; c.lineWidth = 1;
+  for (const r of [R / 3, R * 2 / 3]) { c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.stroke(); }
+  c.beginPath(); c.moveTo(cx, cy - R); c.lineTo(cx, cy + R); c.moveTo(cx - R, cy); c.lineTo(cx + R, cy); c.stroke();
+  // Sweep: a bright line with a fading wake behind it
+  const sweep = (now * 1.7) % (Math.PI * 2), WAKE = 1.1;
+  for (let k = 0; k < 8; k++) {
+    const a0 = sweep - WAKE * (k + 1) / 8, a1 = sweep - WAKE * k / 8;
+    c.fillStyle = 'rgba(159,239,255,' + (0.24 * (1 - k / 8)) + ')';
+    c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, R, a0 - Math.PI / 2, a1 - Math.PI / 2); c.closePath(); c.fill();
+  }
+  c.strokeStyle = 'rgba(159,239,255,.85)'; c.lineWidth = 2;
+  c.beginPath(); c.moveTo(cx, cy); c.lineTo(cx + Math.sin(sweep) * R, cy - Math.cos(sweep) * R); c.stroke();
+  // The other drone: a blip that flares as the sweep crosses it, then fades
+  let oppText = 'NO CONTACT';
+  if (o.alive) {
+    const dx = o.pos[0] - p.pos[0], dy = o.pos[1] - p.pos[1], dz = o.pos[2] - p.pos[2];
+    const range = Math.hypot(dx, dy, dz);
+    let bx = (dx * -fz + dz * fx) * sc, by = -(dx * fx + dz * fz) * sc;
+    const bd = Math.hypot(bx, by), rim = bd > R - 6;
+    if (rim && bd > 0.001) { bx *= (R - 6) / bd; by *= (R - 6) / bd; }
+    let d = sweep - Math.atan2(bx, -by); while (d < 0) d += Math.PI * 2; while (d > Math.PI * 2) d -= Math.PI * 2;
+    const lit = Math.max(0.12, Math.exp(-d * 1.5));
+    c.globalAlpha = lit;
+    c.fillStyle = '#ff4fd8';
+    if (rim) { c.beginPath(); c.arc(cx + bx, cy + by, 5, 0, Math.PI * 2); c.lineWidth = 2; c.strokeStyle = '#ff4fd8'; c.stroke(); }
+    else {
+      c.beginPath(); c.arc(cx + bx, cy + by, 5.5, 0, Math.PI * 2); c.fill();
+      c.globalAlpha = lit * 0.3; c.beginPath(); c.arc(cx + bx, cy + by, 11, 0, Math.PI * 2); c.fill();
+    }
+    c.globalAlpha = 1;
+    oppText = Math.round(range) + ' m  ' + (dy > 2 ? '\u25B2 ' + Math.round(dy) : dy < -2 ? '\u25BC ' + Math.round(-dy) : 'LEVEL');
+  }
+  c.restore();
+  // You, at the centre, always pointing up
+  c.fillStyle = '#b8ff3c';
+  c.beginPath(); c.moveTo(cx, cy - 7); c.lineTo(cx + 5, cy + 5); c.lineTo(cx - 5, cy + 5); c.closePath(); c.fill();
+  c.fillStyle = o.alive ? '#ff4fd8' : SCR.dim; c.font = '600 15px "Chakra Petch", sans-serif';
+  c.fillText(oppText, cx, 172);
+  c.fillStyle = SCR.dim; c.font = '600 11px "Chakra Petch", sans-serif'; c.fillText(RANGE + ' m', cx + 46, 20);
 
   // Centre: artificial horizon with the boost bar under it
   c.save();
@@ -784,19 +848,7 @@ function drawScreens(now, msg, sub, clock, scoreText, warn) {
     c.fillText(msg, 384, sub ? 84 : 88 + size * 0.34);
     if (sub) { c.fillStyle = SCR.dim; c.font = '600 15px "Chakra Petch", sans-serif'; c.fillText(sub, 384, 124); }
   }
-  // Proximity light: a flashing red caption under the horizon, with the screen frames lit red
-  if (q.on) {
-    const alpha = flash ? 1 : 0.18;
-    c.globalAlpha = alpha;
-    c.fillStyle = '#2a0b0b'; c.fillRect(CW + 10, 150, CW - 20, 20);
-    c.fillStyle = '#ff5a4f'; c.font = '700 15px "Chakra Petch", sans-serif';
-    c.fillText('PROXIMITY  ' + Math.max(0, q.near).toFixed(0) + ' m', 384, 165);
-    c.globalAlpha = 1;
-  }
-  for (let i = 0; i < 3; i++) {
-    c.strokeStyle = q.on ? 'rgba(255,90,79,' + (flash ? 0.95 : 0.3) + ')' : SCR.dim;
-    c.lineWidth = q.on ? 4 : 2; c.strokeRect(i * CW + 2, 2, CW - 4, H - 4);
-  }
+  for (let i = 0; i < 3; i++) { c.strokeStyle = SCR.dim; c.lineWidth = 2; c.strokeRect(i * CW + 2, 2, CW - 4, H - 4); }
   vrTex.needsUpdate = true;
 }
 
@@ -1303,6 +1355,8 @@ function frame(ms, xrFrame) {
     const pm = !vr ? '' : state === 'countdown' ? (countdown > 0 ? String(Math.ceil(countdown)) : 'GO') : state === 'over' ? $('msg').textContent : '';
     drawScreens(t, pm, pm && state === 'over' ? 'Trigger: rematch' : '', fmt(game.time), score[0] + ' – ' + score[1], warn);
   }
+  const lamp = trails[0].craft.userData.lamp;
+  lamp.material.color.setHex(prox[0].on && prox[0].blink ? LAMP_ON : LAMP_OFF);
 
   if (vr) {
     // Seat the pilot: wherever your head is and whichever way you face when the round starts becomes straight ahead.
@@ -1353,7 +1407,7 @@ function frame(ms, xrFrame) {
 attract();
 layout();
 renderer.setAnimationLoop(frame);
-window.__skyloom = { get state() { return state; }, get game() { return game; }, look: lookOff };
+window.__skyloom = { get state() { return state; }, get game() { return game; }, look: lookOff, get lamp() { return trails[0].craft.userData.lamp; }, get screen() { return vrCanvas; } };
 })();
 
 </script>
