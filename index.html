@@ -955,19 +955,23 @@ function rumble() {
 
 // ---------- Proximity warning ----------
 // A quiet blip that quickens as the space ahead closes up: a wall, a trail or the other drone.
-const WARN_RANGE = 14;
+const WARN_TIME = 3.0, MAX_SCAN = 44; // warn by time to impact, not raw distance
 const beeps = [{ t: 0 }, { t: 0 }];
 function hazardDistance(i) {
   const p = game.players[i];
   const d = p.dir, x = p.pos[0], y = p.pos[1], z = p.pos[2];
-  let near = WARN_RANGE;
+  let near = MAX_SCAN;
   // March ahead with a widening radius, so a trail you are about to graze counts too
-  for (let s = 1; s <= WARN_RANGE; s++) {
-    const r = HIT_R + s * 0.045, px = x + d[0] * s, py = y + d[1] * s, pz = z + d[2] * s;
+  for (let s = 1; s <= MAX_SCAN; s++) {
+    const r = HIT_R + s * 0.02, px = x + d[0] * s, py = y + d[1] * s, pz = z + d[2] * s;
     if (!game.inside(px, py, pz, r) || game.hit(px, py, pz, r, i, p.n - SKIP)) { near = s; break; }
   }
+  // The other drone counts only when it lies ahead of us
   const o = game.players[1 - i];
-  if (o.alive) near = Math.min(near, Math.hypot(p.pos[0] - o.pos[0], p.pos[1] - o.pos[1], p.pos[2] - o.pos[2]) - 1);
+  if (o.alive) {
+    const ox = o.pos[0] - x, oy = o.pos[1] - y, oz = o.pos[2] - z, od = Math.hypot(ox, oy, oz);
+    if (od > 0.001 && (ox * d[0] + oy * d[1] + oz * d[2]) / od > 0.55) near = Math.min(near, od - 1);
+  }
   return near;
 }
 const prox = [{ near: 0, k: 0, on: false }, { near: 0, k: 0, on: false }]; // also drives the dash light
@@ -976,15 +980,18 @@ function proximityWarning(dt, now) {
     const p = game.players[i], b = beeps[i], q = prox[i];
     if (state !== 'playing' || p.ai || !p.alive) { b.t = 0; q.on = false; q.k = 0; continue; }
     const near = hazardDistance(i);
-    q.on = near < WARN_RANGE; q.near = near;
+    const speed = game.speed * (p.boostActive ? game.boostMult : 1);
+    const tti = Math.max(0, near) / speed;                     // seconds to impact on this heading
+    q.on = tti < WARN_TIME; q.near = near; q.tti = tti;
     if (!q.on) { b.t = 0; q.k = 0; continue; }
-    const k = Math.max(0, Math.min(1, 1 - near / WARN_RANGE)); // 0 at the edge of range, 1 on top of it
+    const k = 1 - tti / WARN_TIME;                             // 0 at the edge of warning, 1 at impact
     q.k = k;
-    q.blink = Math.sin(now * (7 + k * 20)) > -0.2;             // flashes faster the closer it gets
+    q.blink = Math.sin(now * (9 + k * 30)) > -0.25;            // flashes faster as the moment closes
     b.t -= dt;
     if (b.t <= 0) {
-      b.t = 0.09 + Math.pow(1 - k, 2.2) * 1.5;
-      tone(500 + k * 540 + i * 80, 0.05, 'triangle', 0.014 + k * 0.016);
+      // Beep period tracks the time left, so the pace is the same cue at any speed
+      b.t = Math.max(0.07, Math.min(0.9, tti * 0.3));
+      tone(470 + k * 640 + i * 80, 0.07, 'triangle', 0.075 + k * 0.085);
     }
   }
 }
