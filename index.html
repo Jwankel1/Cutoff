@@ -468,17 +468,17 @@ function metalTexture(base, kind) {
   c.fillStyle = base; c.fillRect(0, 0, S, S);
   b.fillStyle = '#808080'; b.fillRect(0, 0, S, S);
   // Brushed grain: many faint horizontal streaks
-  for (let i = 0; i < 1400; i++) {
-    const y = Math.floor(rnd() * S) + 0.5, x = rnd() * S, len = 20 + rnd() * 110, light = rnd() > 0.5;
-    c.strokeStyle = light ? 'rgba(255,255,255,' + (0.02 + rnd() * 0.05) + ')' : 'rgba(0,0,0,' + (0.03 + rnd() * 0.08) + ')';
+  for (let i = 0; i < 320; i++) {
+    const y = Math.floor(rnd() * S) + 0.5, x = rnd() * S, len = 60 + rnd() * 160, light = rnd() > 0.5;
+    c.strokeStyle = light ? 'rgba(255,255,255,' + (0.008 + rnd() * 0.018) + ')' : 'rgba(0,0,0,' + (0.02 + rnd() * 0.04) + ')';
     c.lineWidth = 1; c.beginPath(); c.moveTo(x, y); c.lineTo(x + len, y); c.stroke();
     if (x + len > S) { c.beginPath(); c.moveTo(0, y); c.lineTo(x + len - S, y); c.stroke(); }
-    b.strokeStyle = light ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'; b.beginPath(); b.moveTo(x, y); b.lineTo(x + len, y); b.stroke();
+    b.strokeStyle = light ? 'rgba(255,255,255,0.012)' : 'rgba(0,0,0,0.012)'; b.beginPath(); b.moveTo(x, y); b.lineTo(x + len, y); b.stroke();
   }
   // Wear blotches
   for (let i = 0; i < 9; i++) {
     const x = rnd() * S, y = rnd() * S, r = 18 + rnd() * 40, g = c.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, 'rgba(0,0,0,0.16)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    g.addColorStop(0, 'rgba(0,0,0,0.07)'); g.addColorStop(1, 'rgba(0,0,0,0)');
     c.fillStyle = g; c.fillRect(x - r, y - r, r * 2, r * 2);
   }
   if (kind === 'plate') {
@@ -499,9 +499,9 @@ function metalTexture(base, kind) {
     for (const x of [14, 100, 142, 228]) { rivet(x, 140); rivet(x, 244); }
   }
   // A few long scratches
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 2; i++) {
     const x = rnd() * S, y = rnd() * S, a = (rnd() - 0.5) * 1.2, len = 20 + rnd() * 70;
-    c.strokeStyle = 'rgba(255,255,255,' + (0.06 + rnd() * 0.1) + ')'; c.lineWidth = 0.7;
+    c.strokeStyle = 'rgba(255,255,255,' + (0.03 + rnd() * 0.04) + ')'; c.lineWidth = 0.7;
     c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len); c.stroke();
   }
   const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
@@ -509,11 +509,11 @@ function metalTexture(base, kind) {
 }
 function metalMat(base, kind, shininess) {
   const [map, bumpMap] = metalTexture(base, kind);
-  return new THREE.MeshPhongMaterial({ map, bumpMap, bumpScale: 0.008, specular: 0x5a5d66, shininess });
+  return new THREE.MeshPhongMaterial({ map, bumpMap, bumpScale: 0.004, specular: 0x6a6e78, shininess });
 }
-const hullMat = metalMat('#17181c', 'plate', 48);
-const trimMat = metalMat('#26282e', 'brushed', 80);
-const darkMat = metalMat('#0c0d10', 'matte', 18);
+const hullMat = metalMat('#17181c', 'plate', 90);
+const trimMat = metalMat('#26282e', 'brushed', 120);
+const darkMat = metalMat('#0c0d10', 'matte', 60);
 // Box geometry whose texture repeats every TILE metres, whatever the box's size
 const TILE = 0.6, plateGeos = {};
 function plateGeo(w, h, d) {
