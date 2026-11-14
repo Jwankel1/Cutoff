@@ -95,6 +95,7 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
 #big .msg { font-size: clamp(40px, 11vw, 84px); font-weight: 700; letter-spacing: .08em; line-height: 1; text-wrap: balance; text-shadow: 0 0 24px rgba(5,6,15,.9); }
 #big .sub { margin-top: 10px; color: var(--ink); font-size: 17px; text-shadow: 0 0 10px var(--void); }
 #big .acts { margin-top: 18px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+#big .acts[hidden] { display: none; }
 #big .acts button { padding: 12px 20px; font-size: 16px; font-weight: 600; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
 #big .acts button:first-child { background: var(--ink); color: var(--void); }
 #boostBtn { position: fixed; right: 18px; bottom: 22px; width: 92px; height: 92px; border-radius: 50%; background: var(--panel);
@@ -455,28 +456,107 @@ const tube = new THREE.CylinderGeometry(0.5, 0.5, 1, 6, 1, true);
 tube.rotateX(Math.PI / 2); // length runs along Z
 // The drone is an armoured flying-car cabin. The pilot's eyes sit at its origin, nose along -Z.
 // One wide windshield with the pillars pushed out to the sides; the console stays about 27 degrees below eye level.
-scene.add(new THREE.HemisphereLight(0xa9bcff, 0x0b0d1a, 1.0));
-(function () { const sun = new THREE.DirectionalLight(0xffffff, 0.55); sun.position.set(0.4, 1, 0.3); scene.add(sun); })();
-const hullMat = new THREE.MeshLambertMaterial({ color: 0x2b3048 });
-const trimMat = new THREE.MeshLambertMaterial({ color: 0x424a6b });
-const darkMat = new THREE.MeshLambertMaterial({ color: 0x151829 });
+scene.add(new THREE.HemisphereLight(0xa9bcff, 0x0b0d1a, 0.5));
+(function () { const sun = new THREE.DirectionalLight(0xffffff, 0.4); sun.position.set(0.4, 1, 0.3); scene.add(sun); })();
+// Metal textures are painted in code: brushed streaks, plate seams with rivets, scratches and wear.
+function metalTexture(base, kind) {
+  const S = 256;
+  const mk = () => { const c = document.createElement('canvas'); c.width = c.height = S; return c; };
+  const col = mk(), bmp = mk(), c = col.getContext('2d'), b = bmp.getContext('2d');
+  let seed = kind.length * 7919 + 13;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  c.fillStyle = base; c.fillRect(0, 0, S, S);
+  b.fillStyle = '#808080'; b.fillRect(0, 0, S, S);
+  // Brushed grain: many faint horizontal streaks
+  for (let i = 0; i < 1400; i++) {
+    const y = Math.floor(rnd() * S) + 0.5, x = rnd() * S, len = 20 + rnd() * 110, light = rnd() > 0.5;
+    c.strokeStyle = light ? 'rgba(255,255,255,' + (0.02 + rnd() * 0.05) + ')' : 'rgba(0,0,0,' + (0.03 + rnd() * 0.08) + ')';
+    c.lineWidth = 1; c.beginPath(); c.moveTo(x, y); c.lineTo(x + len, y); c.stroke();
+    if (x + len > S) { c.beginPath(); c.moveTo(0, y); c.lineTo(x + len - S, y); c.stroke(); }
+    b.strokeStyle = light ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'; b.beginPath(); b.moveTo(x, y); b.lineTo(x + len, y); b.stroke();
+  }
+  // Wear blotches
+  for (let i = 0; i < 9; i++) {
+    const x = rnd() * S, y = rnd() * S, r = 18 + rnd() * 40, g = c.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(0,0,0,0.16)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g; c.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  if (kind === 'plate') {
+    // Seams split the tile into one wide plate over two half plates, with rivets along the seams
+    const seam = (x1, y1, x2, y2) => {
+      c.strokeStyle = 'rgba(0,0,0,0.6)'; c.lineWidth = 2; c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+      c.strokeStyle = 'rgba(255,255,255,0.10)'; c.lineWidth = 1; c.beginPath(); c.moveTo(x1 + 1.5, y1 + 1.5); c.lineTo(x2 + 1.5, y2 + 1.5); c.stroke();
+      b.strokeStyle = '#202020'; b.lineWidth = 3; b.beginPath(); b.moveTo(x1, y1); b.lineTo(x2, y2); b.stroke();
+    };
+    seam(0, 1, S, 1); seam(0, 128, S, 128); seam(1, 0, 1, 128); seam(128, 128, 128, S);
+    const rivet = (x, y) => {
+      c.fillStyle = 'rgba(0,0,0,0.5)'; c.beginPath(); c.arc(x + 0.8, y + 0.8, 3.2, 0, 7); c.fill();
+      c.fillStyle = 'rgba(255,255,255,0.22)'; c.beginPath(); c.arc(x, y, 2.6, 0, 7); c.fill();
+      c.fillStyle = 'rgba(255,255,255,0.3)'; c.beginPath(); c.arc(x - 0.8, y - 0.8, 1, 0, 7); c.fill();
+      b.fillStyle = '#e0e0e0'; b.beginPath(); b.arc(x, y, 3, 0, 7); b.fill();
+    };
+    for (const x of [14, 78, 142, 206]) { rivet(x, 12); rivet(x + 36, 116); }
+    for (const x of [14, 100, 142, 228]) { rivet(x, 140); rivet(x, 244); }
+  } else if (kind === 'tread') {
+    // Diamond tread for the floor and dark panels
+    for (let y = 0; y < S; y += 32) for (let x = 0; x < S; x += 32) for (const [ox, oy, rot] of [[8, 8, 0.6], [24, 24, -0.6]]) {
+      for (const [ctx, fill] of [[c, 'rgba(255,255,255,0.06)'], [b, '#c0c0c0']]) {
+        ctx.save(); ctx.translate(x + ox, y + oy); ctx.rotate(rot); ctx.fillStyle = fill; ctx.fillRect(-7, -1.6, 14, 3.2); ctx.restore();
+      }
+    }
+  }
+  // A few long scratches
+  for (let i = 0; i < 10; i++) {
+    const x = rnd() * S, y = rnd() * S, a = (rnd() - 0.5) * 1.2, len = 20 + rnd() * 70;
+    c.strokeStyle = 'rgba(255,255,255,' + (0.06 + rnd() * 0.1) + ')'; c.lineWidth = 0.7;
+    c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len); c.stroke();
+  }
+  const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  return [col, bmp].map(cv => { const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = aniso; return t; });
+}
+function metalMat(base, kind, shininess) {
+  const [map, bumpMap] = metalTexture(base, kind);
+  return new THREE.MeshPhongMaterial({ map, bumpMap, bumpScale: 0.008, specular: 0x4a5573, shininess });
+}
+const hullMat = metalMat('#343a55', 'plate', 42);
+const trimMat = metalMat('#4d5578', 'brushed', 70);
+const darkMat = metalMat('#161a2c', 'tread', 16);
+// Box geometry whose texture repeats every TILE metres, whatever the box's size
+const TILE = 0.6, plateGeos = {};
+function plateGeo(w, h, d) {
+  const key = [w, h, d].map(v => v.toFixed(3)).join('x');
+  if (plateGeos[key]) return plateGeos[key];
+  const g = new THREE.BoxGeometry(w, h, d), uv = g.attributes.uv;
+  const dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+  const ou = Math.random(), ov = Math.random();
+  for (let f = 0; f < 6; f++) for (let k = 0; k < 4; k++) {
+    const i = f * 4 + k;
+    uv.setXY(i, uv.getX(i) * dims[f][0] / TILE + ou, uv.getY(i) * dims[f][1] / TILE + ov);
+  }
+  return (plateGeos[key] = g);
+}
 const buttonMat = new THREE.MeshBasicMaterial({ color: 0xcdb98a });
 const blankScreen = new THREE.MeshBasicMaterial({ color: 0x0b2f3c });
 function buildCockpit(color, screenTex) {
   const g = new THREE.Group();
   const lit = new THREE.MeshBasicMaterial({ color });
   const a = new THREE.Vector3(), b = new THREE.Vector3();
+  // Metal parts get real-size geometry so the texture keeps its scale; glowing parts are plain scaled boxes
+  const solid = (mat, w, h, d) => {
+    if (mat.isMeshPhongMaterial) return new THREE.Mesh(plateGeo(w, h, d), mat);
+    const m = new THREE.Mesh(unitBox, mat); m.scale.set(w, h, d); return m;
+  };
   const box = (mat, w, h, d, x, y, z, rx, ry) => {
-    const m = new THREE.Mesh(unitBox, mat);
-    m.scale.set(w, h, d); m.position.set(x, y, z); m.rotation.order = 'YXZ';
+    const m = solid(mat, w, h, d);
+    m.position.set(x, y, z); m.rotation.order = 'YXZ';
     if (rx) m.rotation.x = rx; if (ry) m.rotation.y = ry;
     g.add(m); return m;
   };
   const strut = (mat, x1, y1, z1, x2, y2, z2, w, h) => {
     a.set(x1, y1, z1); b.set(x2, y2, z2);
-    const m = new THREE.Mesh(unitBox, mat);
+    const m = solid(mat, w, h, a.distanceTo(b));
     m.position.copy(a).add(b).multiplyScalar(0.5);
-    m.lookAt(b); m.scale.set(w, h, a.distanceTo(b));
+    m.lookAt(b);
     g.add(m); return m;
   };
   const buttons = [];
@@ -522,9 +602,9 @@ function buildCockpit(color, screenTex) {
   [[-0.41, 0.32], [0, 0], [0.41, -0.32]].forEach(([x, ry], i) => {
     const h = new THREE.Group(); h.rotation.order = 'YXZ';
     h.position.set(x, -0.545, -0.79 + Math.abs(x) * 0.12); h.rotation.set(-0.5, ry, 0);
-    const housing = new THREE.Mesh(unitBox, trimMat); housing.scale.set(0.37, 0.26, 0.05);
+    const housing = solid(trimMat, 0.37, 0.26, 0.05);
     const screen = new THREE.Mesh(sgeo[i], screenMat); screen.position.z = 0.027;
-    const hood = new THREE.Mesh(unitBox, darkMat); hood.scale.set(0.37, 0.02, 0.09); hood.position.set(0, 0.135, 0.03);
+    const hood = solid(darkMat, 0.37, 0.02, 0.09); hood.position.set(0, 0.135, 0.03);
     h.add(housing, screen, hood);
     for (let k = 0; k < 2; k++) { const d = new THREE.Mesh(unitBox, buttonMat); d.scale.set(0.014, 0.022, 0.012); d.position.set(0.168, 0.05 - k * 0.05, 0.027); h.add(d); }
     g.add(h);
@@ -533,11 +613,13 @@ function buildCockpit(color, screenTex) {
   box(hullMat, 0.36, 0.3, 0.62, 0, -0.71, -0.42);
   for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) button(-0.07 + c * 0.07, -0.555, -0.3 + r * 0.06, 0.03, 0.026);
   const yoke = new THREE.Group(); yoke.position.set(0, -0.525, -0.46);
-  const ypart = (mat, w, h, d, x, y, z) => { const m = new THREE.Mesh(unitBox, mat); m.scale.set(w, h, d); m.position.set(x, y, z); yoke.add(m); };
+  const ypart = (mat, w, h, d, x, y, z) => { const m = solid(mat, w, h, d); m.position.set(x, y, z); yoke.add(m); };
   ypart(trimMat, 0.05, 0.05, 0.22, 0, -0.03, -0.09);
   ypart(trimMat, 0.36, 0.035, 0.035, 0, 0, 0.02);
   for (const x of [-1, 1]) { ypart(darkMat, 0.04, 0.11, 0.04, x * 0.18, 0.04, 0.02); ypart(lit, 0.042, 0.012, 0.042, x * 0.18, 0.1, 0.02); }
   g.add(yoke); g.userData.yoke = yoke;
+  // Cool glow from the screens, so the metal catches highlights
+  const glow = new THREE.PointLight(0x9fe4ff, 0.4, 2.6); glow.position.set(0, -0.15, -0.55); g.add(glow);
   // Seat
   box(darkMat, 0.5, 0.6, 0.08, 0, -0.54, 0.52);
   box(trimMat, 0.2, 0.14, 0.07, 0, -0.17, 0.5);
