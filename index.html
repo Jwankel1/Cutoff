@@ -88,6 +88,10 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
   background: var(--panel); padding: 4px 12px; border-radius: 4px; }
 #warn { position: absolute; left: 50%; top: 52px; transform: translateX(-50%); color: var(--danger); font-weight: 700; letter-spacing: .2em; font-size: 14px; white-space: nowrap; animation: blink .5s steps(2) infinite; }
 #warn[hidden] { display: none; }
+#prox { position: absolute; left: 50%; top: 78px; transform: translateX(-50%); color: var(--danger); font-weight: 700; letter-spacing: .16em;
+  font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; border: 1px solid var(--danger); border-radius: 3px; padding: 3px 10px; background: rgba(40,6,6,.6); }
+#prox[hidden] { display: none; }
+#hud.split-h #prox { top: auto; bottom: 78px; }
 @keyframes blink { 50% { opacity: .25; } }
 @media (prefers-reduced-motion: reduce) { #warn { animation: none; } }
 #big { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); text-align: center; pointer-events: auto; width: min(92%, 460px); }
@@ -116,6 +120,7 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
   <div class="pane" id="pane1"><div class="who" id="who1">Computer</div><div class="boost"><i id="boost1"></i></div><div class="turn" id="turn1"></div></div>
   <div id="clock">0:00</div>
   <div id="warn" hidden>WALLS CLOSING</div>
+  <div id="prox" hidden>PROXIMITY</div>
   <div id="big" hidden><div class="msg" id="msg"></div><div class="sub" id="sub"></div>
     <div class="acts" id="acts" hidden><button id="again">Rematch</button><button id="back">Menu</button></div></div>
   <div id="hint"></div>
@@ -711,9 +716,11 @@ const vrCtx = vrCanvas.getContext('2d');
 const vrTex = new THREE.CanvasTexture(vrCanvas);
 const trails = [new Trail(COLORS[0], vrTex), new Trail(COLORS[1], null)];
 const SCR = { ink: '#9fefff', dim: '#3f8296', bg: '#06141d', grid: '#0e2c3a' };
-let screenAt = -1, screenMsg = '';
+let screenAt = -1, screenMsg = '', screenFlash = false;
 function drawScreens(now, msg, sub, clock, scoreText, warn) {
-  if (msg === screenMsg && now - screenAt < 0.1) return;
+  const q = prox[0], flash = q.on && q.blink;
+  if (msg === screenMsg && flash === screenFlash && now - screenAt < 0.1) return;
+  screenFlash = flash;
   screenAt = now; screenMsg = msg;
   const c = vrCtx, CW = 256, H = 176, p = game.players[0], o = game.players[1];
   c.fillStyle = SCR.bg; c.fillRect(0, 0, 768, H);
@@ -765,7 +772,19 @@ function drawScreens(now, msg, sub, clock, scoreText, warn) {
     c.fillText(msg, 384, sub ? 84 : 88 + size * 0.34);
     if (sub) { c.fillStyle = SCR.dim; c.font = '600 15px "Chakra Petch", sans-serif'; c.fillText(sub, 384, 124); }
   }
-  for (let i = 0; i < 3; i++) { c.strokeStyle = SCR.dim; c.lineWidth = 2; c.strokeRect(i * CW + 1, 1, CW - 2, H - 2); }
+  // Proximity light: a flashing red caption under the horizon, with the screen frames lit red
+  if (q.on) {
+    const alpha = flash ? 1 : 0.18;
+    c.globalAlpha = alpha;
+    c.fillStyle = '#2a0b0b'; c.fillRect(CW + 10, 150, CW - 20, 20);
+    c.fillStyle = '#ff5a4f'; c.font = '700 15px "Chakra Petch", sans-serif';
+    c.fillText('PROXIMITY  ' + Math.max(0, q.near).toFixed(0) + ' m', 384, 165);
+    c.globalAlpha = 1;
+  }
+  for (let i = 0; i < 3; i++) {
+    c.strokeStyle = q.on ? 'rgba(255,90,79,' + (flash ? 0.95 : 0.3) + ')' : SCR.dim;
+    c.lineWidth = q.on ? 4 : 2; c.strokeRect(i * CW + 2, 2, CW - 4, H - 4);
+  }
   vrTex.needsUpdate = true;
 }
 
@@ -931,6 +950,42 @@ function rumble() {
   const session = renderer.xr.getSession && renderer.xr.getSession();
   if (session) for (const src of session.inputSources) {
     try { const hap = src.gamepad && src.gamepad.hapticActuators && src.gamepad.hapticActuators[0]; if (hap && hap.pulse) hap.pulse(0.7, 900); } catch (e) {}
+  }
+}
+
+// ---------- Proximity warning ----------
+// A quiet blip that quickens as the space ahead closes up: a wall, a trail or the other drone.
+const WARN_RANGE = 14;
+const beeps = [{ t: 0 }, { t: 0 }];
+function hazardDistance(i) {
+  const p = game.players[i];
+  const d = p.dir, x = p.pos[0], y = p.pos[1], z = p.pos[2];
+  let near = WARN_RANGE;
+  // March ahead with a widening radius, so a trail you are about to graze counts too
+  for (let s = 1; s <= WARN_RANGE; s++) {
+    const r = HIT_R + s * 0.045, px = x + d[0] * s, py = y + d[1] * s, pz = z + d[2] * s;
+    if (!game.inside(px, py, pz, r) || game.hit(px, py, pz, r, i, p.n - SKIP)) { near = s; break; }
+  }
+  const o = game.players[1 - i];
+  if (o.alive) near = Math.min(near, Math.hypot(p.pos[0] - o.pos[0], p.pos[1] - o.pos[1], p.pos[2] - o.pos[2]) - 1);
+  return near;
+}
+const prox = [{ near: 0, k: 0, on: false }, { near: 0, k: 0, on: false }]; // also drives the dash light
+function proximityWarning(dt, now) {
+  for (let i = 0; i < 2; i++) {
+    const p = game.players[i], b = beeps[i], q = prox[i];
+    if (state !== 'playing' || p.ai || !p.alive) { b.t = 0; q.on = false; q.k = 0; continue; }
+    const near = hazardDistance(i);
+    q.on = near < WARN_RANGE; q.near = near;
+    if (!q.on) { b.t = 0; q.k = 0; continue; }
+    const k = Math.max(0, Math.min(1, 1 - near / WARN_RANGE)); // 0 at the edge of range, 1 on top of it
+    q.k = k;
+    q.blink = Math.sin(now * (7 + k * 20)) > -0.2;             // flashes faster the closer it gets
+    b.t -= dt;
+    if (b.t <= 0) {
+      b.t = 0.09 + Math.pow(1 - k, 2.2) * 1.5;
+      tone(500 + k * 540 + i * 80, 0.05, 'triangle', 0.014 + k * 0.016);
+    }
   }
 }
 
@@ -1203,6 +1258,7 @@ function frame(ms, xrFrame) {
 
   for (let i = 0; i < 2; i++) { trails[i].update(game.players[i]); updateHeadlight(i); updateGuide(i, state !== 'menu', t); }
   updateBursts(dt);
+  proximityWarning(dt, t);
 
   // The room itself shrinks: scale it to the live bounds
   const h = game.half;
@@ -1213,6 +1269,9 @@ function frame(ms, xrFrame) {
   if (state !== 'menu') {
     $('clock').textContent = fmt(game.time);
     $('warn').hidden = !warn;
+    const q = prox[0], pe = $('prox');
+    pe.hidden = !q.on;
+    if (q.on) { pe.style.opacity = q.blink ? 1 : 0.15; pe.textContent = 'PROXIMITY  ' + Math.max(0, q.near).toFixed(0) + ' m'; }
     $('boost0').style.width = (game.players[0].energy * 100) + '%';
     $('boost1').style.width = (game.players[1].energy * 100) + '%';
   }
