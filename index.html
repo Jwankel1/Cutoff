@@ -159,6 +159,7 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
     <dl>
       <dt>VR</dt><dd>You sit in the cockpit and can look anywhere. Either thumbstick steers: left and right to turn, forward to climb, back to dive. Hold a trigger to boost. Face forward when the countdown starts.</dd>
       <dt>Player 1</dt><dd>A / D turn, W climb, S dive, left Shift boost</dd>
+      <dt>Looping</dt><dd>Hold climb or dive past vertical to go over the top. Add some turn or you fly back into your own trail. Off in VR unless comfort is Off.</dd>
       <dt>Player 2</dt><dd>Arrow keys, right Shift boost</dd>
       <dt>Gamepad</dt><dd>Left stick or d-pad steers, A or right trigger boosts</dd>
       <dt>Touch</dt><dd>Drag like a joystick, hold the Boost button</dd>
@@ -192,6 +193,7 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
     return out;
   }
   const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+  const wrapPi = v => v > Math.PI ? v - 2 * Math.PI : v < -Math.PI ? v + 2 * Math.PI : v;
 
   class Game {
     constructor(specs, tune) {
@@ -199,6 +201,7 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
       this.speed = SPEED * (t.speed || 1); this.boostMult = t.boost || BOOST_MULT;
       this.yawRate = YAW_RATE * (t.turn || 1); this.pitchRate = PITCH_RATE * (t.turn || 1);
       this.ease = t.ease || 10; // how quickly steering responds; lower is gentler
+      this.canLoop = !!t.loop;   // whether a human pilot may go over the top
       this.half = [AX / 2, AY / 2, AZ / 2];
       this.target = this.half.slice(); this.nextShrink = CLOSE_START;
       this.time = 0; this.closing = false; this.over = false; this.winner = null;
@@ -211,7 +214,7 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
       this.players = specs.map((s, i) => {
         const p = {
           id: i, ai: !!s.ai, difficulty: s.difficulty || 'normal',
-          pos: starts[i].pos.slice(), yaw: starts[i].yaw, pitch: 0,
+          pos: starts[i].pos.slice(), yaw: starts[i].yaw, pitch: 0, looping: 0,
           in: { x: 0, y: 0 }, sx: 0, sy: 0,
           alive: true, boosting: false, boostActive: false, energy: 1,
           pts: new Float32Array(MAXPTS * 3), n: 0, travel: 0, aiT: i * 0.05, aiBoost: false,
@@ -361,8 +364,17 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
         const n = Math.max(1, Math.ceil(speed * dt / 0.3)), h = dt / n;
         for (let s = 0; s < n; s++) {
           p.yaw -= p.sx * this.yawRate * h;
-          p.pitch = clamp(p.pitch + p.sy * this.pitchRate * h, -PITCH_MAX, PITCH_MAX);
-          if (Math.abs(p.in.y) < 0.1 && Math.abs(p.pitch) < 0.14) p.pitch *= Math.max(0, 1 - 5 * h); // settle to level
+          if (p.looping) {
+            // Once past vertical the loop finishes itself, so nobody is left flying inverted
+            const was = p.pitch;
+            p.pitch = wrapPi(p.pitch + p.looping * this.pitchRate * h);
+            if (p.looping > 0 ? (was < 0 && p.pitch >= 0) : (was > 0 && p.pitch <= 0)) { p.pitch = 0; p.looping = 0; }
+          } else {
+            p.pitch += p.sy * this.pitchRate * h;
+            if (this.canLoop && !p.ai && Math.abs(p.pitch) > PITCH_MAX) p.looping = Math.sign(p.pitch);
+            else p.pitch = clamp(p.pitch, -PITCH_MAX, PITCH_MAX);
+            if (Math.abs(p.in.y) < 0.1 && Math.abs(p.pitch) < 0.14) p.pitch *= Math.max(0, 1 - 5 * h); // settle to level
+          }
           fwd(p.yaw, p.pitch, p.dir);
           p.pos[0] += p.dir[0] * speed * h; p.pos[1] += p.dir[1] * speed * h; p.pos[2] += p.dir[2] * speed * h;
           p.travel += speed * h;
@@ -381,7 +393,7 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
     }
   }
 
-  const api = { Game, AX, AY, AZ, MAXPTS, HIT_R, SKIP, CLOSE_START };
+  const api = { Game, AX, AY, AZ, MAXPTS, HIT_R, SKIP, CLOSE_START, SPEED, PITCH_RATE };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Skyloom = api;
 })(typeof self !== 'undefined' ? self : globalThis);
@@ -1048,7 +1060,10 @@ function attract() { newGame([{ ai: true, difficulty: 'normal' }, { ai: true, di
 function startMatch(m) {
   wake();
   mode = m;
-  newGame(m === '1p' ? [{ ai: false }, { ai: true, difficulty }] : [{ ai: false }, { ai: false }], trails[0].keep ? COMFORT[comfort].tune : null);
+  // Looping is allowed on a flat screen, and in VR only with comfort off: going over the top is the worst case for motion sickness
+  const inVR = trails[0].keep;
+  const tune = Object.assign({ loop: !inVR || comfort === 'off' }, inVR ? COMFORT[comfort].tune : null);
+  newGame(m === '1p' ? [{ ai: false }, { ai: true, difficulty }] : [{ ai: false }, { ai: false }], tune);
   state = 'countdown'; countdown = 3; lastBeep = 4; needEye = true;
   $('menu').hidden = true; $('hud').hidden = false;
   $('acts').hidden = true;
