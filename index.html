@@ -1112,7 +1112,7 @@ const CHORDS = [                                   // Am - F - C - G, two bars e
   { root: 36, notes: [55, 60, 64] },
   { root: 31, notes: [55, 59, 62] },
 ];
-const ARP = [0, null, 7, 12, null, 7, 15, null, 12, null, 7, 3, null, 7, 12, null];
+const ARP = [0, null, null, 7, null, null, 12, null, null, 7, null, 3, null, null, 7, null];
 function noise() {
   if (noiseBuf) return noiseBuf;
   const n = ac.sampleRate * 2, b = ac.createBuffer(1, n, ac.sampleRate), d = b.getChannelData(0);
@@ -1123,10 +1123,14 @@ function musicInit() {
   if (mus || !ac) return;
   const out = ac.createGain(); out.gain.value = 0.0001; out.connect(ac.destination);
   const filt = ac.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 600; filt.Q.value = 0.9; filt.connect(out);
+  const drive = ac.createWaveShaper();                 // soft clipping gives the bass its grit
+  const curve = new Float32Array(1024);
+  for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(x * 2.2) * 0.85; }
+  drive.curve = curve; drive.oversample = '2x'; drive.connect(filt);
   const dly = ac.createDelay(1); dly.delayTime.value = 0.21;
   const fb = ac.createGain(); fb.gain.value = 0.32;
   dly.connect(fb); fb.connect(dly); dly.connect(filt);
-  mus = { out, filt, dly, step: 0, next: 0, level: 0, riserFor: -1 };
+  mus = { out, filt, dly, drive, step: 0, next: 0, level: 0, riserFor: -1 };
 }
 function kick(when, amt) {
   const o = ac.createOscillator(), g = ac.createGain();
@@ -1152,13 +1156,22 @@ function clap(when, amt) {
   s.start(when, Math.random()); s.stop(when + 0.2);
 }
 function bass(when, midi, dur, amt) {
-  const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = MIDI(midi);
-  const lp = ac.createBiquadFilter(); lp.type = 'lowpass';
-  lp.frequency.setValueAtTime(1000, when); lp.frequency.exponentialRampToValueAtTime(240, when + dur);
+  const f = MIDI(midi);
+  // Sub sine carries the weight and goes straight out, clear of the drive
+  const sub = ac.createOscillator(); sub.type = 'sine'; sub.frequency.value = f;
+  const sg = ac.createGain();
+  sg.gain.setValueAtTime(0.0001, when); sg.gain.linearRampToValueAtTime(amt * 1.1, when + 0.006);
+  sg.gain.setValueAtTime(amt * 1.1, when + dur * 0.5); sg.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+  sub.connect(sg); sg.connect(mus.filt);
+  sub.start(when); sub.stop(when + dur + 0.02);
+  // Driven saw gives the growl, with a filter that snaps shut
+  const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f;
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 5;
+  lp.frequency.setValueAtTime(1600, when); lp.frequency.exponentialRampToValueAtTime(165, when + dur * 0.75);
   const g = ac.createGain();
-  g.gain.setValueAtTime(0.0001, when); g.gain.linearRampToValueAtTime(amt, when + 0.012);
-  g.gain.setValueAtTime(amt, when + dur * 0.55); g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
-  o.connect(lp); lp.connect(g); g.connect(mus.filt);
+  g.gain.setValueAtTime(0.0001, when); g.gain.linearRampToValueAtTime(amt * 0.85, when + 0.008);
+  g.gain.setValueAtTime(amt * 0.85, when + dur * 0.45); g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+  o.connect(lp); lp.connect(g); g.connect(mus.drive);
   o.start(when); o.stop(when + dur + 0.02);
 }
 function pad(when, notes, dur, amt) {
@@ -1173,12 +1186,14 @@ function pad(when, notes, dur, amt) {
   }
 }
 function pluck(when, midi, amt) {
-  const o = ac.createOscillator(); o.type = 'square'; o.frequency.value = MIDI(midi);
+  const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.value = MIDI(midi);
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(2400, when); lp.frequency.exponentialRampToValueAtTime(700, when + 0.3);
   const g = ac.createGain();
-  g.gain.setValueAtTime(0.0001, when); g.gain.linearRampToValueAtTime(amt, when + 0.004);
-  g.gain.exponentialRampToValueAtTime(0.0001, when + 0.22);
-  o.connect(g); g.connect(mus.filt); g.connect(mus.dly);
-  o.start(when); o.stop(when + 0.25);
+  g.gain.setValueAtTime(0.0001, when); g.gain.linearRampToValueAtTime(amt, when + 0.016);
+  g.gain.exponentialRampToValueAtTime(0.0001, when + 0.3);
+  o.connect(lp); lp.connect(g); g.connect(mus.filt); g.connect(mus.dly);
+  o.start(when); o.stop(when + 0.32);
 }
 function lead(when, midi, dur, amt) {
   for (const det of [-11, 0, 11]) {
@@ -1212,14 +1227,15 @@ function crashCymbal() {
 }
 function musicStep(step, when, I, sd) {
   const s16 = step % 16, bar = (step / 16) | 0, ch = CHORDS[((step / 32) | 0) % 4];
-  if (step % 32 === 0) pad(when, ch.notes, sd * 32, 0.03 + I * 0.022);
-  if (I > 0.12 && s16 % 4 === 0) kick(when, 0.45 + I * 0.3);
-  if (I > 0.2 && s16 % 4 === 2) bass(when, ch.root, sd * 1.7, 0.12 + I * 0.07);
-  if (I > 0.55 && s16 % 8 === 7) bass(when, ch.root + 12, sd * 1.2, 0.09);
-  if (I > 0.3 && s16 % 2 === 1) hat(when, 0.05 + I * 0.03, I > 0.6 && s16 % 8 === 7);
-  if (I > 0.45 && (s16 === 4 || s16 === 12)) clap(when, 0.1 + I * 0.04);
-  if (I > 0.38) { const a = ARP[s16]; if (a !== null) pluck(when, ch.root + 24 + a, 0.04 + I * 0.03); }
-  if (I > 0.68 && s16 === 0 && bar % 2 === 0) lead(when, ch.notes[2], sd * 15, 0.04);
+  if (step % 32 === 0) pad(when, ch.notes, sd * 32, 0.022 + I * 0.016);
+  if (I > 0.12 && s16 % 4 === 0) kick(when, 0.5 + I * 0.3);
+  if (I > 0.18 && s16 % 4 === 2) bass(when, ch.root, sd * 1.8, 0.24 + I * 0.12);
+  if (I > 0.5 && s16 % 8 === 3) bass(when, ch.root, sd * 0.9, 0.17 + I * 0.07);
+  if (I > 0.6 && s16 % 16 === 15) bass(when, ch.root + 12, sd * 1.1, 0.14);
+  if (I > 0.3 && s16 % 2 === 1) hat(when, 0.04 + I * 0.025, I > 0.6 && s16 % 8 === 7);
+  if (I > 0.45 && (s16 === 4 || s16 === 12)) clap(when, 0.09 + I * 0.03);
+  if (I > 0.5) { const a = ARP[s16]; if (a !== null) pluck(when, ch.root + 24 + a, 0.022 + I * 0.016); }
+  if (I > 0.7 && s16 === 0 && bar % 2 === 0) lead(when, ch.notes[2], sd * 15, 0.034);
 }
 function musicTick(dt, target) {
   if (!ac) return;
