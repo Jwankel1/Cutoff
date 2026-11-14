@@ -23,8 +23,8 @@ Steering is free flight: turn left and right, climb and dive. The view stays lev
 
 | | Steer | Boost |
 |---|---|---|
-| VR controllers | Either thumbstick (forward climbs, back dives) | Hold a trigger |
+| VR controllers | Either thumbstick, flight-stick style: pull back to climb, push forward to dive | Hold a trigger |
 | Player 1 keys | A / D turn, W climb, S dive | Left Shift |
 | Player 2 keys | Arrow keys | Right Shift |
-| Gamepad | Left stick or d-pad | A or right trigger |
+| Gamepad | Left stick, pull back to climb; d-pad up climbs | A or right trigger |
 | Touch | Drag like a joystick | Hold the Boost button |
