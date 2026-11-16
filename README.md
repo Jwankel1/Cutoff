@@ -7,9 +7,26 @@ Two drones fly freely through one large room (80 x 36 x 80 m), each leaving a so
 - **1 player** against the computer (Easy, Normal, Hard), in VR or on screen
 - **2 players** in split screen, on one keyboard or two gamepads
 
-The soundtrack is generated in code: a drifting space ambience that only becomes a
-beat as the room closes — pads and bells first, a heartbeat, then a kick and bass,
-with a riser into every wall move. It can be turned off on the menu.
+The soundtrack plays throughout, starting muffled and distant and opening up as the
+room closes in. It can be turned off on the menu.
+
+## Swapping the soundtrack
+
+Tracks live in `music/`. To change one:
+
+1. Put the audio file in `music/`.
+2. Edit the `TRACKS` list near the top of the script in `index.html`:
+
+```js
+const TRACKS = [
+  { name: 'Prog Trance A', src: 'music/cutoff_prog_trance_takeA_00001.mp3' },
+];
+```
+
+The first entry plays. List more than one and a Track picker appears on the menu,
+and the choice is remembered. Empty the list and the game falls back to a
+soundtrack generated in code — ambient pads that build into a beat as the room
+closes.
 
 ## Play
 
