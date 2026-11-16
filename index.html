@@ -1001,6 +1001,7 @@ function tone(f, d, type, vol, f2) {
   o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
 }
 function boom() {
+  duckMusic(0.3, 0.45);
   if (!ac) return;
   const n = ac.sampleRate * 0.6, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
   for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2);
@@ -1010,6 +1011,7 @@ function boom() {
 }
 
 function rumble() {
+  duckMusic(0.45, 0.6);
   // Low filtered noise with a sub-bass sweep, plus a controller buzz in VR
   if (ac) {
     const dur = 1.4, n = Math.floor(ac.sampleRate * dur), buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
@@ -1064,6 +1066,7 @@ function proximityWarning(dt, now) {
       // Beep period tracks the time left, so the pace is the same cue at any speed
       b.t = Math.max(0.07, Math.min(0.9, tti * 0.3));
       tone(470 + k * 640 + i * 80, 0.07, 'triangle', 0.075 + k * 0.085);
+      duckMusic(0.4, 0.07);
     }
   }
 }
@@ -1158,14 +1161,26 @@ function noise() {
   for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
   return (noiseBuf = b);
 }
+// Dip the music for a moment so an effect can be heard over it
+function duckMusic(to, hold) {
+  if (!mus) return;
+  const g = mus.duck.gain, t = ac.currentTime;
+  if (g.value <= to) return;
+  g.cancelScheduledValues(t);
+  g.setValueAtTime(g.value, t);
+  g.linearRampToValueAtTime(to, t + 0.025);
+  g.setValueAtTime(to, t + hold);
+  g.linearRampToValueAtTime(1, t + hold + 0.3);
+}
 function musicInit() {
   if (mus || !ac) return;
-  const out = ac.createGain(); out.gain.value = 0.0001; out.connect(ac.destination);
+  const duck = ac.createGain(); duck.gain.value = 1; duck.connect(ac.destination);
+  const out = ac.createGain(); out.gain.value = 0.0001; out.connect(duck);
   const filt = ac.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 450; filt.Q.value = 0.8; filt.connect(out);
   const dly = ac.createDelay(1); dly.delayTime.value = 0.42;
   const fb = ac.createGain(); fb.gain.value = 0.42;
   dly.connect(fb); fb.connect(dly); dly.connect(filt);
-  mus = { out, filt, rev: null, dly, step: 0, next: 0, level: 0, riserFor: -1 };
+  mus = { out, duck, filt, rev: null, dly, step: 0, next: 0, level: 0, riserFor: -1 };
 }
 // A generated impulse gives the ambience the size of a hall. Built on first use, so a
 // recorded soundtrack never pays for a convolver.
@@ -1341,11 +1356,11 @@ function musicTick(dt, target) {
   if (trackState === 'loading') return;
   if (trackState === 'playing') {
     // The track plays throughout; it starts muffled and distant and opens right up as the room closes
-    mus.out.gain.setTargetAtTime(0.3 + I * 0.4, t, 0.5);
+    mus.out.gain.setTargetAtTime(0.15 + I * 0.21, t, 0.5);
     mus.filt.frequency.setTargetAtTime(500 + Math.pow(I, 1.5) * 15500, t, 0.7);
     return;
   }
-  mus.out.gain.setTargetAtTime(0.07 + I * 0.045, t, 0.5);
+  mus.out.gain.setTargetAtTime(0.05 + I * 0.035, t, 0.5);
   mus.filt.frequency.setTargetAtTime(450 + Math.pow(I, 1.4) * 6800, t, 0.6);
   const sd = 60 / (92 + I * 26) / 4;                                 // one sixteenth note
   mus.dly.delayTime.setTargetAtTime(sd * 6, t, 0.6);
@@ -1707,6 +1722,7 @@ layout();
 renderer.setAnimationLoop(frame);
 window.__skyloom = { get state() { return state; }, get game() { return game; }, look: lookOff, get lamp() { return trails[0].craft.userData.lamp; }, get screen() { return vrCanvas; },
   set force(v) { forceI = v; },
+  get duck() { return mus ? mus.duck.gain.value : 1; },
   get track() { return { state: trackState, playing: trackState === 'playing', time: trackEl ? trackEl.currentTime : 0, paused: trackEl ? trackEl.paused : null, src: TRACKS[trackIdx] && TRACKS[trackIdx].src }; },
   get audioTime() { return ac ? ac.currentTime : 0; }, get music() { return mus ? { level: mus.level, cutoff: mus.filt.frequency.value, gain: mus.out.gain.value } : null; } };
 })();
