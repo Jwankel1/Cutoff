@@ -34,6 +34,10 @@ button:focus-visible, summary:focus-visible { outline: 2px solid var(--ink); out
 }
 #menu > :first-child { margin-top: auto; } /* sits at the bottom when there is room, scrolls from the top when there is not */
 #menu[hidden] { display: none; }
+.bests { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; font-size: 14px; color: var(--dim); }
+.bests b { color: var(--p1); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; }
+.bests span { color: var(--ink); font-variant-numeric: tabular-nums; }
+.bests[hidden] { display: none; }
 .opts { display: grid; grid-template-columns: 1fr; gap: 12px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
 .opts .label { margin-bottom: 6px; color: var(--ink); }
 @media (max-height: 700px) {
@@ -89,6 +93,20 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
   background: var(--panel); padding: 4px 12px; border-radius: 4px; }
 #warn { position: absolute; left: 50%; top: 52px; transform: translateX(-50%); color: var(--danger); font-weight: 700; letter-spacing: .2em; font-size: 14px; white-space: nowrap; animation: blink .5s steps(2) infinite; }
 #warn[hidden] { display: none; }
+#scorehud { position: absolute; inset: 0; }
+#scorehud[hidden] { display: none; }
+.sbox { position: absolute; top: 44px; left: 50%; transform: translateX(-50%); display: flex; align-items: baseline; gap: 8px;
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+#sbox1 { display: none; }
+.sval { font-size: 26px; font-weight: 700; letter-spacing: .04em; color: var(--ink); }
+.smult { font-size: 17px; font-weight: 700; color: var(--p1); transition: opacity .2s; }
+.sflash { position: absolute; left: 50%; top: 30px; transform: translateX(-50%); font-size: 15px; font-weight: 700; color: var(--p1); white-space: nowrap; }
+#hud.split-h #sbox0, #hud.split-v #sbox0 { color: var(--p1); }
+#hud.split-h #sbox1, #hud.split-v #sbox1 { display: flex; }
+#hud.split-h #sbox0 { left: 25%; } #hud.split-h #sbox1 { left: 75%; }
+#hud.split-v #sbox1 { top: calc(50% + 44px); }
+#hud.split-h #sbox0 .smult, #hud.split-h #sbox1 .smult { color: inherit; }
+#hud.split-v #sbox1 .sval, #hud.split-h #sbox1 .sval { color: var(--p2); }
 #prox { position: absolute; left: 50%; top: 78px; transform: translateX(-50%); color: var(--danger); font-weight: 700; letter-spacing: .16em;
   font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; border: 1px solid var(--danger); border-radius: 3px; padding: 3px 10px; background: rgba(40,6,6,.6); }
 #prox[hidden] { display: none; }
@@ -120,6 +138,10 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
   <div class="pane" id="pane0"><div class="who" id="who0">You</div><div class="boost"><i id="boost0"></i></div><div class="turn" id="turn0"></div></div>
   <div class="pane" id="pane1"><div class="who" id="who1">Computer</div><div class="boost"><i id="boost1"></i></div><div class="turn" id="turn1"></div></div>
   <div id="clock">0:00</div>
+  <div id="scorehud" hidden>
+    <div class="sbox" id="sbox0"><span class="sval" id="sval0">0</span><span class="smult" id="smult0"></span><span class="sflash" id="sflash0"></span></div>
+    <div class="sbox" id="sbox1"><span class="sval" id="sval1">0</span><span class="smult" id="smult1"></span><span class="sflash" id="sflash1"></span></div>
+  </div>
   <div id="warn" hidden>WALLS CLOSING</div>
   <div id="prox" hidden>PROXIMITY</div>
   <div id="big" hidden><div class="msg" id="msg"></div><div class="sub" id="sub"></div>
@@ -131,6 +153,7 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
 <div id="menu">
   <h1><span>CUT</span><span>OFF</span></h1>
   <p class="tag">Two drones fly free through one huge room, each trailing a wall of light. Touch a trail and you lose. The room keeps closing in.</p>
+  <div class="bests" id="bests" hidden></div>
   <div class="opts">
     <div>
       <div class="label" id="difflabel">Computer skill</div>
@@ -167,6 +190,7 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
     <dl>
       <dt>VR</dt><dd>You sit in the cockpit and can look anywhere. Either thumbstick steers like a flight stick: left and right to turn, pull back to climb, push forward to dive. Hold a trigger to boost. Face forward when the countdown starts.</dd>
       <dt>Player 1</dt><dd>A / D turn, W climb, S dive, left Shift boost</dd>
+      <dt>Scoring</dt><dd>A close pass pays as you pull away from it, and the tighter the gap the more it pays. Chain passes within four seconds to build a multiplier. Staying alive and cutting off the computer also score.</dd>
       <dt>Looping</dt><dd>Hold climb or dive past vertical to go over the top. Add some turn or you fly back into your own trail. Off in VR unless comfort is Off.</dd>
       <dt>Player 2</dt><dd>Arrow keys, right Shift boost</dd>
       <dt>Gamepad</dt><dd>Left stick steers, pull back to climb; d-pad up still climbs. A or right trigger boosts</dd>
@@ -275,6 +299,38 @@ dt { color: var(--ink); white-space: nowrap; } dd { margin: 0; }
         }
       }
       return false;
+    }
+    // Distance to the nearest trail or wall in any direction, for close-shave scoring.
+    nearest(i, maxR) {
+      const p = this.players[i], x = p.pos[0], y = p.pos[1], z = p.pos[2];
+      let best = Math.min(maxR, this.wallDist(x, y, z));
+      const skipFrom = p.n - SKIP;
+      const cx = Math.floor((x + AX / 2) / CELL), cy = Math.floor(y / CELL), cz = Math.floor((z + AZ / 2) / CELL);
+      const R = Math.ceil(maxR / CELL);
+      for (let dy = -R; dy <= R; dy++) {
+        const yy = cy + dy; if (yy < 0 || yy >= GY) continue;
+        for (let dz = -R; dz <= R; dz++) {
+          const zz = cz + dz; if (zz < 0 || zz >= GZ) continue;
+          for (let dx = -R; dx <= R; dx++) {
+            const xx = cx + dx; if (xx < 0 || xx >= GX) continue;
+            const list = this.cells[(yy * GZ + zz) * GX + xx];
+            if (!list) continue;
+            for (let q = 0; q < list.length; q++) {
+              const code = list[q], o = code >= MAXPTS ? 1 : 0, k = code - o * MAXPTS;
+              if (o === i && k >= skipFrom) continue;
+              const pts = this.players[o].pts, j = k * 3;
+              const ax = pts[j], ay = pts[j + 1], az = pts[j + 2];
+              const ex = pts[j + 3] - ax, ey = pts[j + 4] - ay, ez = pts[j + 5] - az;
+              const px = x - ax, py = y - ay, pz = z - az;
+              const t = clamp((px * ex + py * ey + pz * ez) / (ex * ex + ey * ey + ez * ez || 1), 0, 1);
+              const qx = px - ex * t, qy = py - ey * t, qz = pz - ez * t;
+              const d = Math.sqrt(qx * qx + qy * qy + qz * qz);
+              if (d < best) best = d;
+            }
+          }
+        }
+      }
+      return best;
     }
     wallDist(x, y, z) {
       const h = this.half;
@@ -843,11 +899,28 @@ function drawScreens(now, msg, sub, clock, scoreText, warn) {
   c.strokeRect(294, 146, 180, 16); c.fillStyle = '#b8ff3c'; c.fillRect(297, 149, 174 * p.energy, 10);
   c.fillStyle = SCR.dim; c.font = '600 13px "Chakra Petch", sans-serif'; c.textAlign = 'left'; c.fillText('BOOST', 294, 141); c.textAlign = 'center';
 
-  // Right: clock, score, altitude and the wall warning
-  c.fillStyle = SCR.ink; c.font = '700 54px "Chakra Petch", sans-serif'; c.fillText(clock, 640, 68);
-  c.font = '600 24px "Chakra Petch", sans-serif'; c.fillText(scoreText, 640, 104);
-  c.fillStyle = SCR.dim; c.font = '600 15px "Chakra Petch", sans-serif'; c.fillText('ALT ' + Math.round(p.pos[1] - (AY / 2 - game.half[1])) + ' m', 640, 132);
-  if (warn) { c.fillStyle = '#ff5a4f'; c.font = '700 20px "Chakra Petch", sans-serif'; c.fillText('WALLS CLOSING', 640, 160); }
+  // Right: score, multiplier, clock and the wall warning
+  const s0 = runs[0], fresh = now - s0.flashAt < 0.9;
+  c.fillStyle = SCR.dim; c.font = '600 15px "Chakra Petch", sans-serif';
+  c.textAlign = 'left'; c.fillText('SCORE', 532, 30); c.textAlign = 'right'; c.fillText(clock, 748, 30); c.textAlign = 'center';
+  c.fillStyle = SCR.ink; c.font = '700 52px "Chakra Petch", sans-serif';
+  c.fillText(comma(s0.points), 640, 80);
+  if (s0.mult > 1) {
+    c.fillStyle = '#b8ff3c'; c.font = '700 26px "Chakra Petch", sans-serif';
+    c.fillText('\u00d7' + s0.mult, 640, 112);
+    c.fillStyle = 'rgba(184,255,60,.35)';
+    c.fillRect(560, 120, 160 * Math.max(0, s0.hold / COMBO_HOLD), 4);   // how long the chain has left
+  }
+  if (fresh) {
+    c.fillStyle = '#b8ff3c'; c.font = '700 22px "Chakra Petch", sans-serif';
+    c.globalAlpha = Math.max(0, 1 - (now - s0.flashAt) / 0.9);
+    c.fillText(s0.flashText, 640, 148); c.globalAlpha = 1;
+  } else if (warn) {
+    c.fillStyle = '#ff5a4f'; c.font = '700 20px "Chakra Petch", sans-serif'; c.fillText('WALLS CLOSING', 640, 150);
+  } else {
+    c.fillStyle = SCR.dim; c.font = '600 15px "Chakra Petch", sans-serif';
+    c.fillText('ALT ' + Math.round(p.pos[1] - (AY / 2 - game.half[1])) + ' m  \u00b7  ' + scoreText, 640, 150);
+  }
 
   if (msg) { // countdown or result takes over the centre screen
     c.fillStyle = SCR.bg; c.fillRect(CW, 0, CW, H);
@@ -1369,12 +1442,62 @@ function musicTick(dt, target) {
   while (mus.next < t + ahead) { musicStep(mus.step++, mus.next, I, sd); mus.next += sd; }
 }
 
+// ---------- Score ----------
+// Flying close to a trail or a wall pays, and chaining shaves builds a multiplier.
+// The payout lands when you are past the thing, so hugging a wall earns nothing until you leave it.
+const SHAVE_R = 2.2, COMBO_HOLD = 4, SURVIVE_PER_SEC = 10, WIN_BONUS = 500;
+const runs = [blankScore(), blankScore()];
+function blankScore() { return { points: 0, combo: 0, mult: 1, hold: 0, inShave: false, min: 9, last: -9, flashAt: -9, flashText: '' }; }
+function scoreTick(dt) {
+  for (let i = 0; i < 2; i++) {
+    const p = game.players[i], s = runs[i];
+    if (!p.alive) { s.inShave = false; continue; }
+    s.points += dt * SURVIVE_PER_SEC;
+    if (s.hold > 0 && (s.hold -= dt) <= 0) { s.combo = 0; s.mult = 1; }
+    const d = game.nearest(i, SHAVE_R + 0.6);
+    if (d < SHAVE_R) { s.inShave = true; if (d < s.min) s.min = d; }
+    else if (s.inShave) {
+      s.inShave = false;
+      if (clockNow - s.last > 0.35) {
+        s.last = clockNow;
+        const tight = 1 - s.min / SHAVE_R;                  // 0 at the edge of the gap, 1 touching
+        const pts = Math.round((40 + tight * 180) * s.mult);
+        s.points += pts;
+        s.combo++;
+        s.mult = Math.min(8, 1 + Math.floor(s.combo / 2));
+        s.hold = COMBO_HOLD;
+        s.flashAt = clockNow;
+        s.flashText = '+' + pts + (s.mult > 1 ? '  \u00d7' + s.mult : '');
+        if (!p.ai) tone(820 + Math.min(7, s.combo) * 85, 0.06, 'sine', 0.045);
+      }
+      s.min = 9;
+    }
+  }
+}
+
+// ---------- Personal bests ----------
+const BEST = { score: 0, time: 0, streak: 0 };
+let streak = 0;
+try { Object.assign(BEST, JSON.parse(localStorage.getItem('cutoff-best') || '{}')); } catch (e) {}
+function saveBest() { try { localStorage.setItem('cutoff-best', JSON.stringify(BEST)); } catch (e) {} }
+const comma = n => Math.round(n).toLocaleString('en-US');
+function showBests() {
+  const el = $('bests');
+  if (!el) return;
+  if (!BEST.score && !BEST.time) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = '<b>Best</b>' +
+    '<span>' + comma(BEST.score) + ' pts</span>' +
+    '<span>' + fmt(BEST.time) + ' alive</span>' +
+    (BEST.streak > 1 ? '<span>' + BEST.streak + ' in a row</span>' : '');
+}
+
 // ---------- Match state ----------
 let state = 'menu';       // menu | countdown | playing | over
 let mode = '1p';
 let difficulty = 'normal';
 let game = null;
-let countdown = 0, lastBeep = 0, overAt = 0, clockNow = 0;
+let countdown = 0, lastBeep = 0, overAt = 0, clockNow = 0, autoAt = 0, lastResult = '';
 let split = false;
 const score = [0, 0];
 const held = { keys: {}, touchBoost: false };
@@ -1394,7 +1517,8 @@ function startMatch(m) {
   const inVR = trails[0].keep;
   const tune = Object.assign({ loop: !inVR || comfort === 'off' }, inVR ? COMFORT[comfort].tune : null);
   newGame(m === '1p' ? [{ ai: false }, { ai: true, difficulty }] : [{ ai: false }, { ai: false }], tune);
-  state = 'countdown'; countdown = 3; lastBeep = 4; needEye = true;
+  state = 'countdown'; countdown = 3; lastBeep = 4; needEye = true; autoAt = 0;
+  runs[0] = blankScore(); runs[1] = blankScore();
   $('menu').hidden = true; $('hud').hidden = false;
   $('acts').hidden = true;
   const n = names(); $('who0').textContent = n[0]; $('who1').textContent = n[1];
@@ -1402,23 +1526,47 @@ function startMatch(m) {
   layout();
 }
 function finishMatch() {
-  state = 'over'; overAt = clockNow;
-  if (game.winner !== null) score[game.winner]++;
+  state = 'over'; overAt = clockNow; autoAt = clockNow + 4;
+  if (game.winner !== null) { score[game.winner]++; runs[game.winner].points += WIN_BONUS; }
   const n = names();
   const msg = game.winner === null ? 'Draw' : mode === '1p' ? (game.winner === 0 ? 'You win' : 'You crashed') : n[game.winner] + ' wins';
   $('msg').textContent = msg;
   $('msg').style.color = game.winner === null ? '' : game.winner === 0 ? 'var(--p1)' : 'var(--p2)';
-  $('sub').textContent = 'Lasted ' + fmt(game.time) + '  ·  ' + n[0] + ' ' + score[0] + ' – ' + score[1] + ' ' + n[1];
+  const you = Math.round(runs[0].points);
+  const beat = [];
+  if (mode === '1p') {
+    if (you > BEST.score) { BEST.score = you; beat.push('score'); }
+    if (game.time > BEST.time) { BEST.time = game.time; beat.push('time'); }
+    if (game.winner === 0) { streak++; if (streak > BEST.streak) { BEST.streak = streak; beat.push('streak'); } } else streak = 0;
+    saveBest(); showBests();
+  }
+  lastResult = (mode === '1p' ? comma(you) + ' pts' : n[0] + ' ' + comma(runs[0].points) + ' – ' + comma(runs[1].points) + ' ' + n[1]) +
+    '  ·  ' + fmt(game.time) + ' alive';
+  $('sub').innerHTML = lastResult + (beat.length ? ' <b style="color:var(--p1)">NEW BEST</b>' : '');
   $('big').hidden = false; $('acts').hidden = false;
   $('boostBtn').hidden = true;
   tone(game.winner === 0 ? 660 : 220, 0.5, 'triangle', 0.08, game.winner === 0 ? 990 : 110);
+  if (beat.length) setTimeout(() => tone(880, 0.35, 'triangle', 0.07, 1320), 420);
+}
+function cancelAuto() {
+  if (!autoAt) return;
+  autoAt = 0;
+  $('sub').innerHTML = lastResult;
+  $('again').textContent = 'Rematch';
 }
 function toMenu() {
-  state = 'menu'; split = false;
+  state = 'menu'; split = false; autoAt = 0;
   $('menu').hidden = false; $('hud').hidden = true; $('big').hidden = true; $('boostBtn').hidden = true;
+  $('scorehud').hidden = true;
   attract(); layout();
 }
 function rematch() { if (state === 'over' && clockNow - overAt > 0.6) startMatch(mode); }
+function autoRematch() {
+  if (state !== 'over' || !autoAt) return;
+  const left = Math.ceil(autoAt - clockNow);
+  if (left <= 0) { startMatch(mode); return; }
+  $('again').textContent = 'Rematch in ' + left;
+}
 const fmt = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
 
 // ---------- Input: every device feeds an analog steer (x: right, y: climb) per player ----------
@@ -1430,7 +1578,7 @@ addEventListener('keydown', e => {
   if (state === 'menu') return;
   if (STEER_KEYS.includes(e.code)) e.preventDefault();
   if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat) rematch();
-  else if (e.code === 'Escape' && !renderer.xr.isPresenting) toMenu();
+  else if (e.code === 'Escape') { if (autoAt) cancelAuto(); else if (!renderer.xr.isPresenting) toMenu(); }
 });
 addEventListener('keyup', e => { held.keys[e.code] = false; });
 addEventListener('blur', () => { held.keys = {}; });
@@ -1481,6 +1629,7 @@ function readInput() {
       const trig = !!(gp.buttons[0] && gp.buttons[0].pressed);
       add(0, dead(gp.axes[2] || 0), dead(gp.axes[3] || 0), trig);   // pull back to climb, like a flight stick
       if (pressed(key, trig)) rematch();
+      if (pressed(key + 'g', !!(gp.buttons[1] && gp.buttons[1].pressed))) cancelAuto();
     }
   } else {
     let pads = [];
@@ -1532,6 +1681,7 @@ document.querySelectorAll('[data-music]').forEach(b => b.addEventListener('click
   try { localStorage.setItem('cutoff-music', musicOn ? '1' : '0'); } catch (e) {}
 }));
 showMusic();
+showBests();
 function showComfort() { document.querySelectorAll('[data-comfort]').forEach(o => o.setAttribute('aria-pressed', String(o.dataset.comfort === comfort))); }
 document.querySelectorAll('[data-comfort]').forEach(b => b.addEventListener('click', () => {
   comfort = b.dataset.comfort; showComfort();
@@ -1542,6 +1692,7 @@ $('b1').addEventListener('click', () => startMatch('1p'));
 $('b2').addEventListener('click', () => startMatch('2p'));
 $('again').addEventListener('click', () => { overAt = -9; rematch(); });
 $('back').addEventListener('click', toMenu);
+$('acts').addEventListener('pointerdown', cancelAuto, true);
 
 const vrnote = $('vrnote');
 if (navigator.xr && navigator.xr.isSessionSupported) {
@@ -1627,8 +1778,11 @@ function frame(ms, xrFrame) {
     }
   } else if (state === 'playing') {
     game.update(dt);
+    scoreTick(dt);
     handleEvents();
     if (game.over) finishMatch();
+  } else if (state === 'over') {
+    autoRematch();
   } else if (state === 'menu') {
     game.update(dt);
     handleEvents();
@@ -1655,7 +1809,18 @@ function frame(ms, xrFrame) {
   const warn = game.time > CLOSE_START - 3 && game.time < CLOSE_START + 1.5 && state === 'playing';
   if (state !== 'menu') {
     $('clock').textContent = fmt(game.time);
+    $('scorehud').hidden = false;
     $('warn').hidden = !warn;
+    for (let i = 0; i < (split ? 2 : 1); i++) {
+      const s = runs[i];
+      $('sval' + i).textContent = comma(s.points);
+      const mel = $('smult' + i);
+      mel.textContent = s.mult > 1 ? '\u00d7' + s.mult : '';
+      mel.style.opacity = s.mult > 1 ? 1 : 0;
+      const fe = $('sflash' + i), age = clockNow - s.flashAt;
+      fe.textContent = age < 0.9 ? s.flashText : '';
+      fe.style.opacity = age < 0.9 ? Math.max(0, 1 - age / 0.9) : 0;
+    }
     const q = prox[0], pe = $('prox');
     pe.hidden = !q.on;
     if (q.on) { pe.style.opacity = q.blink ? 1 : 0.15; pe.textContent = 'PROXIMITY  ' + Math.max(0, q.near).toFixed(0) + ' m'; }
@@ -1723,6 +1888,7 @@ renderer.setAnimationLoop(frame);
 window.__skyloom = { get state() { return state; }, get game() { return game; }, look: lookOff, get lamp() { return trails[0].craft.userData.lamp; }, get screen() { return vrCanvas; },
   set force(v) { forceI = v; },
   get duck() { return mus ? mus.duck.gain.value : 1; },
+  get score() { const s = runs[0]; return { points: Math.round(s.points), combo: s.combo, mult: s.mult }; },
   get track() { return { state: trackState, playing: trackState === 'playing', time: trackEl ? trackEl.currentTime : 0, paused: trackEl ? trackEl.paused : null, src: TRACKS[trackIdx] && TRACKS[trackIdx].src }; },
   get audioTime() { return ac ? ac.currentTime : 0; }, get music() { return mus ? { level: mus.level, cutoff: mus.filt.frequency.value, gain: mus.out.gain.value } : null; } };
 })();

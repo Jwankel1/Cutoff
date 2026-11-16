@@ -28,6 +28,14 @@ and the choice is remembered. Empty the list and the game falls back to a
 soundtrack generated in code — ambient pads that build into a beat as the room
 closes.
 
+## Scoring
+
+Staying alive pays a little. Most of the score comes from close passes: fly within
+about two metres of a trail or a wall and the points land as you pull away, scaled
+by how tight the gap was. Chain passes within four seconds to build a multiplier up
+to x8, and cutting the computer off is worth a bonus. Best score, longest run and
+win streak are kept in the browser.
+
 ## Play
 
 The whole game is `index.html`. It loads three.js from a CDN and needs no build step.
