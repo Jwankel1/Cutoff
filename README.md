@@ -7,9 +7,9 @@ Two drones fly freely through one large room (80 x 36 x 80 m), each leaving a so
 - **1 player** against the computer (Easy, Normal, Hard), in VR or on screen
 - **2 players** in split screen, on one keyboard or two gamepads
 
-The soundtrack is generated in code: a trance bed whose layers, filter and tempo
-build as the room closes, with a riser into every wall move. It can be turned off
-on the menu.
+The soundtrack is generated in code: a drifting space ambience that only becomes a
+beat as the room closes — pads and bells first, a heartbeat, then a kick and bass,
+with a riser into every wall move. It can be turned off on the menu.
 
 ## Play
 
